@@ -29,3 +29,13 @@ example in your deployment notes.
   TRAWL browser tier.
 - `cloudflare:sockets` `connect()` is available in the runtime (probed by
   `browser_edge_probe`).
+
+## State ownership
+
+| State | Lives in | Lifetime |
+|---|---|---|
+| Availability probe / circuit breaker / failure counters | Sites worker isolate (in-memory) | per isolate, resets on deploy/eviction |
+| TRAWL cookie sessions (scraped-site cookies) | VPS Redis | TTL 3600s, disposable by design |
+| Caller credentials (headers, bodies) | explicit tool arguments only | per call |
+| Cached public reads | Sites worker in-memory cache | 15-60s TTL |
+| No state | ChatGPT client, browser (the MCP client holds none) | — |

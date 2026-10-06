@@ -8,23 +8,53 @@ plus a full guarded public-read stack with DNS admission.
 Deploy your own instance and connect it to your ChatGPT account. This repository
 contains the application source — not a hosted public service.
 
-## Mental model
+## What runs where
 
 ```text
-ChatGPT conversation (select / mention your connected app)
-    │ managed OAuth + MCP tool calls
-    ▼
-ChatGPT Sites worker (this source): 16 MCP tools
-    ├─ guarded public reads (DNS admission, quality gates, 32-item batches)
-    ├─ browser_open_fetch — unrestricted HTTP(S), any method/headers/body
-    ├─ edge tools — raw TCP (cloudflare:sockets), WebSockets, DNS-over-TCP probe
-    └─ browser_scrape(_batch) — browser-grade tier with automatic failover
-         ▼
-Operator TRAWL endpoint (your VPS, FlareSolverr-compatible; optional)
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. ChatGPT web UI — the MCP CLIENT (the "plugin"/connector)          │
+│                                                                      │
+│  • Discovers tools via MCP tools/list; invokes them via tools/call   │
+│  • Renders results into the model's context                          │
+│  • Runs user-selected models (GPT-6.1 Sol etc.) — NOT your code      │
+│  • Caches the tool list per conversation session                     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ managed OAuth via the Sites gateway
+                               │ HTTPS POST https://your-site/mcp
+┌──────────────────────────────▼──────────────────────────────────────┐
+│ 2. ChatGPT Sites worker — the MCP SERVER (this repository's source)  │
+│                                                                      │
+│  • Implements the MCP protocol endpoint at /mcp (JSON-RPC)           │
+│  • Owner identity comes from the Sites dispatch gateway headers —    │
+│    caller-supplied identity headers are stripped before they arrive  │
+│  • Runs 16 tools inside Cloudflare Workers isolates:                 │
+│     – QuickJS WASM + LinkeDOM for page script execution              │
+│     – guarded public reads (DNS admission, quality gates)            │
+│     – browser_open_fetch: unrestricted HTTP(S) via platform fetch    │
+│     – edge tools: raw TCP via cloudflare:sockets, WebSockets         │
+│  • Holds probe/breaker availability state — per-isolate, ephemeral   │
+│  • NO browser/Chromium here; no filesystem; no persistent cookies    │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ one HTTPS POST {url} → /v1 (Basic auth)
+                               │ only when browser_scrape is invoked
+┌──────────────────────────────▼──────────────────────────────────────┐
+│ 3. Your VPS — browser-grade scraping endpoint (optional)             │
+│                                                                      │
+│  • TRAWL (FlareSolverr-compatible): real Chrome/Camoufox behind      │
+│    Docker, with WAF/challenge solving and cookie session cache       │
+│  • Sessions persist in Redis on the VPS — never in the Sites worker  │
+│  • Hardened: read-only containers, dropped capabilities, non-root    │
+│  • Stateless from the worker's perspective: one POST per scrape      │
+│  • If down → browser_scrape returns route:"fallback" and the         │
+│    guarded worker path serves the request instead                    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-- **ChatGPT web UI is the client.** Tools return structured JSON evidence — status,
-  headers, extracted text, hashes, timings — not merely a completion status.
+**What does NOT run where:** no Chromium/browser in the Sites worker (page
+execution is QuickJS approximation); no arbitrary code execution on the VPS
+beyond TRAWL's own scraping engine; credentials never leave the caller's
+explicit tool arguments — the worker holds no cookie jar and no Sites identity.
+
 - **Failover is explicit, never silent.** When the browser-grade endpoint is
   unavailable, `browser_scrape` returns `route:"fallback"` with a reason so the
   model can retry via `browser_read_page` / `browser_open_fetch`.

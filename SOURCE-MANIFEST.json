@@ -1,0 +1,149 @@
+{
+  "manifest_version": 1,
+  "software_version": "2.7.18",
+  "snapshot_utc": "2026-10-05T02:54:23Z",
+  "scope": "Full src directory only; no source changes, environment secrets, credentials, dependencies or Git history. Build tooling and lockfile are outside this requested snapshot.",
+  "files": {
+    "src/acorn-vendor.mjs": {
+      "bytes": 197679,
+      "sha256": "558eb509c140dea4a0aa4f95ecfa2e0e74189516c54c9816f86ddfc87b6dedc7"
+    },
+    "src/actions.mjs": {
+      "bytes": 3410,
+      "sha256": "df0ab8697afb78c96312f2fb9c1450ec65c727f42106cb6b3dba12e1a639dcab"
+    },
+    "src/batch-evidence.mjs": {
+      "bytes": 15181,
+      "sha256": "627e9c3dcede69c4581cb6491d5316ff91bbf0a56018728fd5c031a4d0b4ba13"
+    },
+    "src/cleanup.mjs": {
+      "bytes": 1315,
+      "sha256": "5f2153cd9229446406aee4e165b7b46c14cc0421b36ee73a1ecdb0f0a88eec62"
+    },
+    "src/config.mjs": {
+      "bytes": 308,
+      "sha256": "9ea3ce676d7e6f075f94980595a39289769b3c850713bece7d11a3eca47497e7"
+    },
+    "src/diagnostic-script.txt": {
+      "bytes": 2927,
+      "sha256": "a06dd256909724be2921effc69bd0105313eaf8ae5bcc3e34f9829a09c2b36cf"
+    },
+    "src/dom.txt": {
+      "bytes": 356280,
+      "sha256": "15d63515e33f58a74e7c882f94e1a6c6e81a7eac98e1ad7236b9440a449b5e65"
+    },
+    "src/edge-probes.mjs": {
+      "bytes": 11339,
+      "sha256": "9fbb128f55ad7df20dd65eade64bb5fd845fffc1b01bdedb49d363a68736c8cc"
+    },
+    "src/guarded-adapter.mjs": {
+      "bytes": 5631,
+      "sha256": "b4693a67ce74d7c576848990e4d504db6d27744fc6d67925d5d44aa0e46233c7"
+    },
+    "src/guest-actions.txt": {
+      "bytes": 12666,
+      "sha256": "6460f38d2069bd5b8faae0acc19d6bb35309aa0617a4acdfe6aff30678c5f297"
+    },
+    "src/guest-checked.txt": {
+      "bytes": 2267,
+      "sha256": "c8998784080ac9fae5ceb6682aa71de81e034cc1e4725701bcefd09b1de0af14"
+    },
+    "src/guest-web.txt": {
+      "bytes": 5309,
+      "sha256": "bcdf970ceba95ed145cadce2a77c7a58631e09bd04c0bffbe31efb31e3d8f7fe"
+    },
+    "src/http-core.mjs": {
+      "bytes": 10698,
+      "sha256": "22205a2c6341ed86b4b19f7ebad65040fb30a500cdfe2cddc252085183743ad4"
+    },
+    "src/input-reader.mjs": {
+      "bytes": 898,
+      "sha256": "8fc56d57e7e68445a0ea89b8d659a57554cd1ba1c9843e6fcb8950d0d9e4a130"
+    },
+    "src/markdown.mjs": {
+      "bytes": 5710,
+      "sha256": "45712cc5455775103a0d6128cd62e770c776a17134ae986fa08c89c671948ce2"
+    },
+    "src/mcp.mjs": {
+      "bytes": 40928,
+      "sha256": "94d610e69955dbb4ccd94bd929d450fea7eddde5314a08c3e71c69ee24dde8e8"
+    },
+    "src/merge-profile.mjs": {
+      "bytes": 444,
+      "sha256": "bc97b5380b1341002b1270526a2387803ae417d72c844563a1523723a6e352c3"
+    },
+    "src/module-graph.mjs": {
+      "bytes": 1686,
+      "sha256": "f17281524f41322400507533c2f08ee2b9f75303b72afbb5351949eed5b0964c"
+    },
+    "src/network-merge.mjs": {
+      "bytes": 14873,
+      "sha256": "d64840d4dad66162181a517c40dbfd193caa24eeed6dfcbb39b93dd70755f61d"
+    },
+    "src/observation.mjs": {
+      "bytes": 5978,
+      "sha256": "1a9a16692e0e8e9a2888cfc989462523d5c391184676cf42c0b7acafd4cca45c"
+    },
+    "src/open-egress.mjs": {
+      "bytes": 8140,
+      "sha256": "3a81f8a1fb067b45182a06246b9bc43d7637cae8760cd680d18b4947c2187599"
+    },
+    "src/policy.mjs": {
+      "bytes": 2996,
+      "sha256": "a5a9a8ec0cd90725b22e1d4708c83f046f91dfbadbc2c610e1f6931f473d6777"
+    },
+    "src/public-events.mjs": {
+      "bytes": 8275,
+      "sha256": "6ad32661ebb9acdc265626bd18d9eff425adb9626fd4a434bc84e88f529d302b"
+    },
+    "src/public-reader.mjs": {
+      "bytes": 9092,
+      "sha256": "15be85f103c8390f0c8600aba36a899ff6f3437b1242f854d6b217e86c553c3f"
+    },
+    "src/quickjs.wasm": {
+      "bytes": 503134,
+      "sha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+    },
+    "src/remote-execution.mjs": {
+      "bytes": 31420,
+      "sha256": "9d77a4bbaa4086ee2ac817726f195004b666a65644e3c133007eec691e861a41"
+    },
+    "src/remote-fixture.mjs": {
+      "bytes": 1725,
+      "sha256": "e995964eb78ea5bc530418e20d4dbd7714f1163d0d12a9b8e081b5b17ef7ba25"
+    },
+    "src/response-quality.mjs": {
+      "bytes": 5598,
+      "sha256": "ba20bccb04289ee4f98fc855388d4e8473299eaaf4f3d3b8ee8453a6c3a1cebb"
+    },
+    "src/sandbox.mjs": {
+      "bytes": 10251,
+      "sha256": "23dc4726ebabdcd3d2b2387c0417f3715cf2b6da2b9a6787cb53ca72d8817215"
+    },
+    "src/script-policy.mjs": {
+      "bytes": 4216,
+      "sha256": "9a873cc0aab3111a8a4707b94c674dc276a60a95bb56f69e5f82564e68f7fb4b"
+    },
+    "src/sha256.mjs": {
+      "bytes": 2317,
+      "sha256": "3575183094d37b3150e73336c9bc4d266f7a951dededb9adf881f4f06e7fb6b7"
+    },
+    "src/static-acquisition.mjs": {
+      "bytes": 25692,
+      "sha256": "968f38f1467649440b45c321e498eba954995e511031d5ac6c55ad747065afde"
+    },
+    "src/trawl-adapter.mjs": {
+      "bytes": 15477,
+      "sha256": "40a62dd185ecb4af49b09da4cfce74b1cb4dafcfc2f8129f8a3a04bd9fb9baf5"
+    },
+    "src/worker.mjs": {
+      "bytes": 5644,
+      "sha256": "9158a73e55e223a2157760a25fe66a5d01fa83f1560eb134fd10f136015b71e9"
+    },
+    "src/readability.mjs": {
+      "bytes": 3368,
+      "sha256": "5d3457bb564f0db4774be463039522442486e44eb7d930256cea2c67815b64f2"
+    }
+  },
+  "build": "RECOMPUTED_AT_DEPLOY"
+}

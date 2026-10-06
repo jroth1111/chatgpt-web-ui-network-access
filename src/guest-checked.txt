@@ -1,0 +1,14 @@
+(()=>{
+const states=new WeakMap(),isRadio=n=>n.tagName==='INPUT'&&(n.getAttribute('type')||'').toLowerCase()==='radio';
+const state=n=>{let s=states.get(n);if(!s){s={checked:n.hasAttribute('checked'),dirty:false};states.set(n,s);}return s;};
+const form=n=>{const id=n.getAttribute('form');if(id!==null){const f=n.ownerDocument?.getElementById(id);return f?.tagName==='FORM'?f:null;}return n.closest('form');};
+const group=n=>{if(!isRadio(n)||!state(n).checked)return;const name=n.getAttribute('name');if(!name)return;const root=n.getRootNode(),owner=form(n);for(const other of root.querySelectorAll?.('input')||[]){if(other!==n&&isRadio(other)&&other.getAttribute('name')===name&&form(other)===owner)state(other).checked=false;}};
+const proto=Object.getPrototypeOf(document.createElement('input'));
+Object.defineProperty(proto,'checked',{configurable:true,get(){return state(this).checked;},set(value){const s=state(this);s.checked=!!value;s.dirty=true;group(this);}});
+Object.defineProperty(proto,'defaultChecked',{configurable:true,get(){return this.hasAttribute('checked');},set(value){if(value)this.setAttribute('checked','');else this.removeAttribute('checked');}});
+const changed=(n,name)=>{if(n.tagName!=='INPUT')return;const s=state(n);if(String(name).toLowerCase()==='checked'&&!s.dirty)s.checked=n.hasAttribute('checked');if(['checked','name','type','form'].includes(String(name).toLowerCase()))group(n);};
+for(const method of ['setAttribute','removeAttribute']){const original=Element.prototype[method];Element.prototype[method]=function(name,...args){if(this.tagName==='INPUT')state(this);const r=original.call(this,name,...args);changed(this,name);return r;};}
+const toggle=Element.prototype.toggleAttribute;if(toggle)Element.prototype.toggleAttribute=function(name,...args){if(this.tagName==='INPUT')state(this);const r=toggle.call(this,name,...args);changed(this,name);return r;};
+globalThis.__reflectInsertedControls=root=>{const nodes=root.tagName==='INPUT'?[root]:[...(root.querySelectorAll?.('input')||[])];for(const n of nodes)state(n);for(const n of nodes)group(n);};
+const initial=[...document.querySelectorAll('input')];for(const n of initial)state(n);for(const n of initial){if(n.hasAttribute('checked'))state(n).checked=true;group(n);}
+})();

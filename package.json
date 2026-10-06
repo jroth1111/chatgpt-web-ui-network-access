@@ -1,0 +1,17 @@
+{
+  "name": "chatgpt-web-ui-network-access",
+  "version": "2.7.18",
+  "private": true,
+  "type": "module",
+  "description": "Unrestricted network access MCP tools for ChatGPT Sites: open HTTP fetch, raw TCP, WebSockets, and browser-grade scraping with failover",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node tests/run.mjs && node tests/friction.mjs"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "miniflare": "4.20260730.0",
+    "quickjs-emscripten": "^0.32.0",
+    "ws": "^8.18.0"
+  }
+}

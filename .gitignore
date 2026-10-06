@@ -1,0 +1,8 @@
+node_modules/
+dist/
+tests/.friction-mcp-bundle.mjs
+tests/.run-bundle.mjs
+tests/quickjs-*.wasm
+tests/friction-mcp-entry.mjs
+*.log
+.env

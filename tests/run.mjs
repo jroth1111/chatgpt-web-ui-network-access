@@ -1,0 +1,30 @@
+import {Miniflare} from 'miniflare';
+import {build} from 'esbuild';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const checks=[];const check=(n,f)=>{try{f();checks.push(n)}catch(e){console.log('FAIL',n,e.message);process.exitCode=1}};
+await build({entryPoints:['src/worker.mjs'],bundle:true,platform:'browser',conditions:['workerd'],format:'esm',external:['./quickjs.wasm'],loader:{'.txt':'text'},outfile:'tests/.run-bundle.mjs',logLevel:'silent'});
+const wasm=await fs.readFile('dist/server/quickjs.wasm');
+const mf=new Miniflare({cf:false,modules:[{type:'ESModule',path:'worker.mjs',contents:await fs.readFile('tests/.run-bundle.mjs','utf8')},{type:'CompiledWasm',path:'quickjs.wasm',contents:wasm}],compatibilityDate:'2026-07-30',bindings:{LAB_SOURCE_COMMIT:'0'.repeat(40),LAB_PUBLICATION_VERSION_ID:'x~t'},outboundService:async req=>{
+  if(req.url.startsWith('https://cloudflare-dns.com/dns-query')){const q=new URL(req.url);return new Response(JSON.stringify({Status:0,Answer:q.searchParams.get('type')==='A'?[{name:q.searchParams.get('name'),type:1,data:'93.184.216.34'}]:[]}),{headers:{'content-type':'application/dns-json'}});}
+  if(req.url==='https://example.com/')return new Response('<html><head><title>Example Domain</title></head><body><p>This domain is for use in documentation examples without needing permission.</p></body></html>',{headers:{'content-type':'text/html'}});
+  return new Response('not found',{status:404});
+}});
+const headers=()=>({'content-type':'application/json',accept:'application/json, text/event-stream','mcp-protocol-version':'2025-11-25','oai-authenticated-user-id':'test','oai-authenticated-user-email':'owner@example.com'});
+const msg=(method,params={},id=1)=>({jsonrpc:'2.0',id,method,params});
+const post=async m=>{const res=await mf.dispatchFetch('https://your-site.example.com/mcp',{method:'POST',headers:headers(),body:JSON.stringify(m)});return {status:res.status,data:await res.json().catch(()=>null)}};
+await post(msg('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'t',version:'2'}}));
+const tl=await post(msg('tools/list'));
+check('16 tools',()=>{const names=tl.data.result.tools.map(t=>t.name);assert.equal(names.length,16);assert(names.includes('browser_scrape_batch'));});
+const sc=await post(msg('tools/call',{name:'browser_scrape',arguments:{url:'https://example.com/'}}));
+check('scrape route fallback',()=>{const out=sc.data.result.structuredContent;assert.equal(out.route,'fallback');assert.equal(out.fallback_reason,'trawl_not_configured');});
+const sb=await post(msg('tools/call',{name:'browser_scrape_batch',arguments:{urls:[{url:'https://a.com/'},{url:'https://b.com/'}]}}));
+check('batch route fallback',()=>{const out=sb.data.result.structuredContent;assert.equal(out.route,'fallback');});
+const rp=await post(msg('tools/call',{name:'browser_read_page',arguments:{url:'https://example.com/'}}));
+check('read_page regression PASS',()=>{assert.equal(rp.data.result.structuredContent.status,'PASS',JSON.stringify(rp.data).slice(0,200));});
+const of_=await post(msg('tools/call',{name:'browser_open_fetch',arguments:{url:'https://example.com/'}}));
+check('open_fetch regression',()=>{const out=of_.data.result.structuredContent;assert.equal(out.status,200);});
+const cap=await post(msg('tools/call',{name:'browser_capabilities',arguments:{}}));
+check('capabilities tool_names 16',()=>{assert.equal(cap.data.result.structuredContent.tool_names.length,16);});
+await mf.dispose();await fs.rm('tests/.run-bundle.mjs',{force:true});
+console.log('passed_checks:',checks.length);

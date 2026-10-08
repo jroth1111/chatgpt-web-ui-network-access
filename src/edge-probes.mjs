@@ -1,8 +1,10 @@
 import {waitBounded,cancelBestEffort} from './cleanup.mjs';
+import {parseDnsTcpResponse} from './dns-response.mjs';
 // Edge capability expansion: raw TCP (cloudflare:sockets), outbound WebSockets,
 // runtime capability probe. Mechanical bounds only — theSites dispatch guard
 // remains the authority; these tools extend egress below the HTTP layer.
-// DNS over TCP uses the fixed public resolver (1.1.1.1:53) for the whois-style
+// DNS over TCP uses a fixed non-Cloudflare public resolver (8.8.8.8:53).
+// Cloudflare Workers restrict outbound TCP to Cloudflare address ranges.
 // raw-protocol demonstration; arbitrary host:port TCP is exposed.
 // cloudflare:sockets in workerd; node:net adapter when executed under plain
 // Node (tests). Adapter exposes {writable, readable, close} like workerd sockets.
@@ -53,7 +55,7 @@ function withTimeout(signal,ms,label){
 }
 // ---- raw TCP tool ----
 // args: {host, port, payload_base64|payload_text, read_timeout_ms, secure (starttls|on|off), close_after_write}
-export async function edgeTcp(args,{signal,connectImpl}={}){
+export async function edgeTcp(args,{signal,connectImpl,onReceived}={}){
  const connect=connectImpl??await resolveConnect();
  if(!connect)throw Error('RAW_TCP_UNAVAILABLE: cloudflare:sockets not importable in this runtime');
  const host=args.host,port=args.port;
@@ -111,6 +113,7 @@ export async function edgeTcp(args,{signal,connectImpl}={}){
   try{Promise.resolve(socket?.close?.()).catch(()=>{});}catch{}
  }
  const received=new Uint8Array(receivedLen);let _ro=0;for(const c of chunks){received.set(c,_ro);_ro+=c.length;}
+ if(onReceived)onReceived(received);
  const hash=await sha256Hex(received);
  const textual=receivedLen&&(()=>{try{const s=new TextDecoder('utf-8',{fatal:true}).decode(received);return {textual:true,text:s.length>16384?s.slice(0,16384)+'…[truncated]':s};}catch{return {textual:false};}})();
  return {ok:true,host,port,secure:mode,bytes_written:payload.length,bytes_received:receivedLen,closed_by_peer:closedByPeer,body_sha256:hash,duration_ms:Date.now()-started,...(textual||{})};
@@ -125,11 +128,14 @@ export function buildDnsQuery(name,id=0x1234){
  q.push(0,0,1,0,1); // A, IN
  return new Uint8Array(q);
 }
-export async function edgeDnsTcp(name,{signal}={}){
- const q=buildDnsQuery(name);
+export async function edgeDnsTcp(name,{signal,connectImpl}={}){
+ const id=crypto.getRandomValues(new Uint16Array(1))[0],q=buildDnsQuery(name,id);
  const prefixed=new Uint8Array(q.length+2);prefixed[0]=q.length>>8;prefixed[1]=q.length&255;prefixed.set(q,2);
- const r=await edgeTcp({host:'1.1.1.1',port:53,payload_base64:btoa(String.fromCharCode(...prefixed)),read_timeout_ms:8000,close_after_write:true},{signal});
- return {...r,protocol:'DNS-over-TCP',resolver:'1.1.1.1:53',source:'raw resolver response; DNS answer parsing not performed'}; // hex of response not in body here; textual/base64 via hash
+ let received;
+ const r=await edgeTcp({host:'8.8.8.8',port:53,payload_base64:btoa(String.fromCharCode(...prefixed)),read_timeout_ms:8000,secure:'off',close_after_write:false},{signal,connectImpl,onReceived:bytes=>{received=bytes;}});
+ const base={...r,protocol:'DNS-over-TCP',resolver:'8.8.8.8:53',source:'validated length-framed DNS A response; no HTTP/DoH fallback'};
+ try{return {...base,status:'PASS',...parseDnsTcpResponse(received,{name,id})};}
+ catch(error){return {...base,ok:false,status:'FAIL',dns_response_validated:false,error:{code:error.code||'dns_response_invalid',message:'No valid matching DNS response was received.'}};}
 }
 // ---- WebSocket tool ----
 // args: {url, send_text|send_base64, subprotocol, timeout_ms, expect_messages(=1)}

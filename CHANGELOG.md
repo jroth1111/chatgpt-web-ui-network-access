@@ -1,3 +1,17 @@
+# 2.7.20
+
+- Repair DNS-over-TCP: fixed non-Cloudflare resolver, clear transport and no
+  premature half-close; validate the length frame, transaction, question and
+  answer ownership. Empty/malformed replies are not DNS success.
+- Keep legacy FlareSolverr `/v1` compatibility without claiming its responses
+  prove browser rendering. Optional `render: true` uses native TRAWL `/scrape`
+  with `skipHttp` and a grounded `ready_selector`, requiring a reported browser
+  tier and matching content. Unsupported/missing-render results fail explicitly.
+- Isolate explicit Curl/Node target DNS errors only when the requested hostname
+  matches; opaque service/proxy errors still degrade endpoint availability.
+- Add synthetic DNS and render-provenance regression checks. These checks do
+  not establish live upstream support or universal website reachability.
+
 # 2.7.19
 
 - Reconcile the public worker with the deployed 2.7.18 compatibility fixes:

@@ -1,5 +1,5 @@
-// TRAWL adapter: browser-grade scraping with availability failover.
-// Primary: TRAWL /v1 API (FlareSolverr-compatible) on the operator's VPS.
+// TRAWL adapter: legacy /v1 retrieval plus explicit native browser rendering.
+// /v1 does not disclose its execution tier and may return plain HTTP HTML.
 // Failover: existing guarded public stack (browser_read_page / openFetch path
 // chosen by the caller) — this module returns a typed routing decision, never
 // silently downgrades.
@@ -9,6 +9,7 @@
 import {extractReadable,detectAppShell} from './readability.mjs';
 import {cancelBestEffort,waitBounded} from './cleanup.mjs';
 import {Sha256} from './sha256.mjs';
+import {parseHTML} from 'linkedom';
 export const TRAWL_LIMITS=Object.freeze({
   probe_ttl_ms:30000,          // availability result cache
   failure_cooldown_ms:60000,   // after a hard failure, skip TRAWL this long
@@ -51,11 +52,18 @@ function safeFailure(error,fallback){
   const message=String(error?.message||error);
   return /^(?:probe_deadline|trawl_deadline|trawl_response_limit|trawl_envelope_invalid|trawl_http_\d{3})$/.test(message)?message:fallback;
 }
-function targetFailure(envelope){
-  if(envelope?.status!=='error')return null;
+function targetFailure(envelope,targetUrl){
+  if(envelope?.status!=='error'&&typeof envelope?.error!=='string')return null;
   // A HTTP 500 alone is not target evidence. Recognize explicit browser target
   // errors; opaque service errors still degrade endpoint availability.
-  return String(envelope.message||'').match(/\bERR_(?:NAME_NOT_RESOLVED|CERT_[A-Z_]+|CONNECTION_REFUSED|CONNECTION_RESET|ADDRESS_UNREACHABLE|BLOCKED_BY_[A-Z_]+)\b/)?.[0]||null;
+  const message=String(envelope.message||envelope.error||'');
+  const browser=message.match(/\bERR_(?:NAME_NOT_RESOLVED|CERT_[A-Z_]+|CONNECTION_REFUSED|CONNECTION_RESET|ADDRESS_UNREACHABLE|BLOCKED_BY_[A-Z_]+)\b/)?.[0];
+  if(browser)return browser;
+  // Curl/Node target DNS failures require the exact requested hostname. A
+  // proxy/operator hostname must never be mistaken for a target failure.
+  const host=message.match(/(?:Could not resolve host:\s*|getaddrinfo ENOTFOUND\s+)([a-z0-9.-]+)/i)?.[1];
+  try{if(host&&host.toLowerCase()===new URL(targetUrl).hostname.toLowerCase())return 'target_name_not_resolved';}catch{}
+  return null;
 }
 function publicHeaders(headers){
   return Object.fromEntries(Object.entries(headers&&typeof headers==='object'&&!Array.isArray(headers)?headers:{}).filter(([key,value])=>typeof value==='string'&&!/(?:^set-cookie$|^cookie$|authorization|^oai-|^x-sites-)/i.test(key)).slice(0,64).map(([key,value])=>[key,value.slice(0,512)]));
@@ -112,19 +120,23 @@ export async function probeTrawl(config,{fetchImpl=fetch,signal,cooldown}={}){
 export async function routeTrawl(targetUrl,args,config,{fetchImpl=fetch,signal,cooldown}={}){
   if(signal?.aborted)return {route:'fallback',reason:'caller_abort',probe:null};
   if(!config?.url) return {route:'fallback',reason:'trawl_not_configured',probe:null};
+  if(args.render!==undefined&&typeof args.render!=='boolean'||args.ready_selector!==undefined&&(args.render!==true||typeof args.ready_selector!=='string'||!args.ready_selector.trim()||args.ready_selector.length>512)||args.render===true&&args.returnOnlyCookies===true)return {route:'fallback',reason:'render_arguments_invalid',probe:null};
   // Plain-HTTP targets hang the TRAWL browser tier (observed live: neverssl.com
   // 120s timeout). Route them to the guarded stack immediately instead.
   if(/^http:\/\//i.test(targetUrl)) return {route:'fallback',reason:'plain_http_target',probe:null};
   const probe=await probeTrawl(config,{fetchImpl,signal,cooldown});
   if(!config?.url||!probe.available) return {route:'fallback',reason:config?.url?'trawl_unavailable:'+String(probe.error||'health_false'):'trawl_not_configured',probe};
   const maxTimeout=Math.min(Math.max(1000,Number(args.timeout_ms)||60000),TRAWL_LIMITS.max_timeout_ms);
-  const body={cmd:'request.get',url:targetUrl,maxTimeout,
+  const body=args.render===true?{url:targetUrl,maxTimeout,skipHttp:true,
+    ...(args.session!==undefined?{sessionId:args.session}:{}),
+    ...(args.ready_selector!==undefined?{contentWaitForSelector:args.ready_selector}:{}),
+  }:{cmd:'request.get',url:targetUrl,maxTimeout,
     ...(args.session!==undefined?{session:args.session}:{}),
     ...(args.returnOnlyCookies===true?{returnOnlyCookies:true}:{}),
   };
   const headers={'content-type':'application/json'};
   Object.assign(headers,authHeaders(config));
-  return {route:'trawl',url:new URL(config.url.replace(/\/+$/,'')+'/v1').href,init:{method:'POST',headers,body:JSON.stringify(body)},maxTimeout,probe};
+  return {route:'trawl',url:new URL(config.url.replace(/\/+$/,'')+(args.render===true?'/scrape':'/v1')).href,init:{method:'POST',headers,body:JSON.stringify(body)},maxTimeout,probe};
 }
 // Execute the routed request and normalize the envelope. Fallback decisions are
 // surfaced, not hidden: if TRAWL errors at request time, we mark cooldown and
@@ -158,21 +170,36 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
     const raw=new TextDecoder().decode(joined);
     if(raw.length>TRAWL_LIMITS.response_bytes)throw Error('trawl_response_limit');
     let envelope;try{envelope=JSON.parse(raw);}catch{if(!res.ok)throw httpError();throw Error('trawl_envelope_invalid');}
-    if(!res.ok&&!targetFailure(envelope))throw httpError();
-    if(!envelope||typeof envelope!=='object'||Array.isArray(envelope)||!['ok','error'].includes(envelope.status))throw Error('trawl_envelope_invalid');
+    if(!res.ok&&!targetFailure(envelope,targetUrl))throw httpError();
+    if(!envelope||typeof envelope!=='object'||Array.isArray(envelope))throw Error('trawl_envelope_invalid');
     // Solve envelope: TRAWL is healthy. failures counter stays at 0 — otherwise
     // failures>0 seeds isCooldownActive after the probe TTL expires (ST-3).
     const responseHealthy=()=>{state={...state,available:true,checkedAt:Date.now(),lastLatency:Date.now()-started,failures:0,lastError:null};recordHealthy();};
-    if(envelope.status!=='ok'){
+    const explicitTargetFailure=targetFailure(envelope,targetUrl);
+    if(explicitTargetFailure||envelope.status==='error'){
       // TRAWL answered — the endpoint is healthy; the TARGET failed (bad domain,
       // blocked, etc.). Do not trip the availability cooldown: the next call to
       // a different URL should reach TRAWL normally.
-      const code=targetFailure(envelope)||'target_solve_failed';
+      const code=explicitTargetFailure||'target_solve_failed';
       responseHealthy();
       state={...state,lastError:code,lastLatency:Date.now()-started};
       return {ok:false,fallback:true,reason:'trawl_error:'+code,trawl_status:envelope.status,duration_ms:Date.now()-started};
     }
-    const sol=envelope.solution||{};
+    let renderEvidence={protocol:'flaresolverr_v1',browser_execution_reported:null,explanation:'The legacy response does not disclose its tier; route=trawl and a user agent do not prove JavaScript rendering.'};
+    let sol=envelope.solution||{};
+    if(args.render===true){
+      // A successful response from an incompatible endpoint is not proof of a
+      // browser render, nor a transport outage. Never silently use /v1 here.
+      if(typeof envelope.html!=='string'||!Number.isInteger(envelope.statusCode)||![2,3,4].includes(envelope.tier))return {ok:false,fallback:true,reason:'render_contract_unsupported',duration_ms:Date.now()-started};
+      let matches=null;
+      if(args.ready_selector!==undefined){
+        try{matches=parseHTML(envelope.html).document.querySelectorAll(args.ready_selector).length;}
+        catch{return {ok:false,fallback:true,reason:'render_selector_invalid',duration_ms:Date.now()-started};}
+        if(!matches){responseHealthy();return {ok:false,fallback:true,reason:'render_ready_selector_missing',duration_ms:Date.now()-started};}
+      }
+      sol={status:envelope.statusCode,url:envelope.url,response:envelope.html,headers:envelope.responseHeaders,cookies:envelope.cookies,userAgent:envelope.userAgent};
+      renderEvidence={protocol:'native_trawl',browser_execution_reported:true,tier:envelope.tier,engine_class:'upstream-reported browser tier; specific engine not independently identified',ready_selector:args.ready_selector??null,ready_selector_matches:matches,selector_scope:'complete returned HTML; not screenshot/layout verification'};
+    }else if(envelope.status!=='ok')throw Error('trawl_envelope_invalid');
     if(!Number.isInteger(sol.status)||sol.status<100||sol.status>599||typeof sol.response!=='string'&&args.returnOnlyCookies!==true)throw Error('trawl_envelope_invalid');
     responseHealthy();
     const html=typeof sol.response==='string'?sol.response:'';
@@ -204,6 +231,7 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
       ...(envelope.startTimestamp?{solve_ms:(envelope.endTimestamp||Date.now())-envelope.startTimestamp}:{}),
       duration_ms:Date.now()-started,
       via:'trawl',
+      render_evidence:renderEvidence,
     };
   }catch(e){
     const msg=safeFailure(e,'trawl_transport_error');
@@ -232,7 +260,7 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
   // MCP layer passes [{url, session}] objects; normalize to targetUrl strings
   // and thread per-item session into the TRAWL body.
   if(!Array.isArray(urls)||!urls.length)return {ok:false,fallback:true,reason:'batch_empty'};
-  const items=urls.map(u=>typeof u==='string'?{url:u,session:args.session}:typeof u==='object'&&u?{url:u.url,session:u.session??args.session}:null);
+  const items=urls.map(u=>typeof u==='string'?{url:u,session:args.session}:typeof u==='object'&&u?{url:u.url,session:u.session??args.session,ready_selector:u.ready_selector}:null);
   if(items.some(it=>!it||typeof it.url!=='string'))return {ok:false,fallback:true,reason:'batch_invalid_item'};
   const plainUrls=items.map(it=>it.url);
   if(urls.length>TRAWL_LIMITS.batch_max_items)return {ok:false,fallback:true,reason:'batch_too_large:'+urls.length+'>'+TRAWL_LIMITS.batch_max_items};
@@ -249,7 +277,7 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
       const item=items[idx];
       if(Date.now()>=batchDeadline||signal?.aborted){results[idx]={url:item.url,ok:false,fallback:true,reason:'batch_deadline'};continue;}
       try{
-        const single=await trawlScrape(item.url,{...args,session:item.session,timeout_ms:Math.min(Number(args.timeout_ms)||60000,Math.max(1000,batchDeadline-Date.now()))},config,{fetchImpl,signal,cooldown});
+        const single=await trawlScrape(item.url,{...args,session:item.session,...(item.ready_selector!==undefined?{ready_selector:item.ready_selector}:{}),timeout_ms:Math.min(Number(args.timeout_ms)||60000,Math.max(1000,batchDeadline-Date.now()))},config,{fetchImpl,signal,cooldown});
         // compact per-item result: full text/html excluded from batch responses
         // (10 × 40KB text + 256KB html would blow the 32KB MCP envelope). Full
         // bodies remain available via single browser_scrape calls.
@@ -257,6 +285,7 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
           url:single.url,route:'trawl',ok:true,status:single.status,title:single.title,
           text:(single.text||'').slice(0,1200),text_truncated:(single.text||'').length>1200||single.text_truncated,
           bytes:single.bytes,body_sha256:single.body_sha256,hash_scope:single.hash_scope,cookies:single.cookies,duration_ms:single.duration_ms,via:single.via,
+          render_evidence:single.render_evidence,
           ...(single.app_shell_suspected?{app_shell_suspected:true,shell_reasons:single.shell_reasons}:{}),
         }:{url:item.url,ok:false,route:'fallback',fallback:single.fallback,reason:single.reason,fallback_reason:single.reason,duration_ms:single.duration_ms};
       }catch(e){

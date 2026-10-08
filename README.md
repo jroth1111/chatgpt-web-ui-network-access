@@ -35,7 +35,7 @@ contains the application source — not a hosted public service.
 │  • Holds probe/breaker availability state — per-isolate, ephemeral   │
 │  • NO browser/Chromium here; no filesystem; no persistent cookies    │
 └──────────────────────────────┬──────────────────────────────────────┘
-                               │ one HTTPS POST {url} → /v1 (Basic auth)
+                               │ one HTTPS POST → /v1 or /scrape (Basic auth)
                                │ only when browser_scrape is invoked
 ┌──────────────────────────────▼──────────────────────────────────────┐
 │ 3. Your VPS — browser-grade scraping endpoint (optional)             │
@@ -46,7 +46,7 @@ contains the application source — not a hosted public service.
 │  • Hardened: read-only containers, dropped capabilities, non-root    │
 │  • Stateless from the worker's perspective: one POST per scrape      │
 │  • If down → browser_scrape returns route:"fallback" and the         │
-│    guarded worker path serves the request instead                    │
+│    caller may explicitly choose the guarded worker path instead      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,11 +79,21 @@ explicit tool arguments — the worker holds no cookie jar and no Sites identity
 | `browser_edge_probe` | Measured runtime capability probe (raw TCP, WebSocket, Caches) |
 | `browser_edge_tcp` | Raw TCP to any host:port (starttls/TLS), bounded reads |
 | `browser_edge_websocket` | Outbound WebSocket, send + receive messages |
-| `browser_edge_dns_tcp` | DNS A query over raw TCP (demonstrates non-HTTP egress) |
-| `browser_scrape` | Browser-grade scrape via operator TRAWL endpoint; readability extraction; shell detection; failover |
+| `browser_edge_dns_tcp` | Validated DNS A reply from fixed 8.8.8.8:53; clear TCP, no DNSSEC/reachability claim |
+| `browser_scrape` | Operator retrieval; optional native render-only mode, readiness check and explicit provenance/failover |
 | `browser_scrape_batch` | Parallel 2–10 URL scrape, 4-way concurrency, per-item isolation |
 
 ## Highlights
+
+- **Explicit rendering:** legacy `/v1` can serve a plain-HTTP tier. A route label,
+  Chrome-like user agent or HTTP 200 does not prove JavaScript execution. Use
+  `browser_scrape` with `render: true` and a CSS `ready_selector` grounded in the
+  page, for example `.quote` on a known quote listing. This requires the native
+  TRAWL `/scrape` contract (`skipHttp`, `contentWaitForSelector`). The adapter
+  checks a reported browser tier and selector matches in the complete returned
+  HTML, discloses `render_evidence`, and fails explicitly if unsupported or
+  missing. This is not independent engine, screenshot or layout verification.
+  Existing FlareSolverr-compatible deployments keep their legacy default.
 
 - **Readability extraction**: `browser_scrape` returns cleaned text/title/links
   server-side (22KB cap) — the model sees content, not truncated HTML.

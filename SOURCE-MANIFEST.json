@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
-  "software_version": "2.7.19",
-  "snapshot_utc": "2026-10-08T09:51:27.611Z",
+  "software_version": "2.7.20",
+  "snapshot_utc": "2026-10-08T13:44:57.374Z",
   "scope": "Full src directory; public source hashes only. Runtime bindings, credentials, dependency files and Git history are outside this inventory.",
   "files": {
     "src/acorn-vendor.mjs": {
@@ -22,19 +22,23 @@
     },
     "src/config.mjs": {
       "bytes": 998,
-      "sha256": "05c194fa1902f14e99f6690a0e4a76d1d672cb16aad4c7a98568c7ae09d0d19f"
+      "sha256": "5251156b320854b1268b7f3fbaed922c9afab6956d08a6e5c78ae1b05eac6488"
     },
     "src/diagnostic-script.txt": {
       "bytes": 2927,
       "sha256": "a06dd256909724be2921effc69bd0105313eaf8ae5bcc3e34f9829a09c2b36cf"
+    },
+    "src/dns-response.mjs": {
+      "bytes": 3301,
+      "sha256": "e917b95c85f1047d3488389dd86d9330fec866d043931e30962e104eccb7bf3f"
     },
     "src/dom.txt": {
       "bytes": 356280,
       "sha256": "15d63515e33f58a74e7c882f94e1a6c6e81a7eac98e1ad7236b9440a449b5e65"
     },
     "src/edge-probes.mjs": {
-      "bytes": 11339,
-      "sha256": "9fbb128f55ad7df20dd65eade64bb5fd845fffc1b01bdedb49d363a68736c8cc"
+      "bytes": 11869,
+      "sha256": "100300da21474d81c5db82c2e709ee0428a756d20aea4f34858b21805ec176f5"
     },
     "src/guarded-adapter.mjs": {
       "bytes": 5631,
@@ -65,8 +69,8 @@
       "sha256": "45712cc5455775103a0d6128cd62e770c776a17134ae986fa08c89c671948ce2"
     },
     "src/mcp.mjs": {
-      "bytes": 41108,
-      "sha256": "71d32233985f3a8cdb2c09f15c23ec11c94dcc4d887b49352144566a1bee1acc"
+      "bytes": 42037,
+      "sha256": "81585cc034138a829bf1b2064f9635d280a5ed2b86feb398fcd1e97ef907d46e"
     },
     "src/merge-profile.mjs": {
       "bytes": 444,
@@ -137,8 +141,8 @@
       "sha256": "968f38f1467649440b45c321e498eba954995e511031d5ac6c55ad747065afde"
     },
     "src/trawl-adapter.mjs": {
-      "bytes": 18188,
-      "sha256": "055e6b6ab47ee9c76b00495795c9a7ae8501ffad162f53d937637327b22624a5"
+      "bytes": 21206,
+      "sha256": "5dc05a7c25221b0676253b22313dd74c415f81afb25d0892440aa50404438c9b"
     },
     "src/worker.mjs": {
       "bytes": 5648,

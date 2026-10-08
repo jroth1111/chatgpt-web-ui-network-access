@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const checks=[];const check=(n,f)=>{try{f();checks.push(n)}catch(e){console.log('FAIL',n,e.message);process.exitCode=1}};
 await build({entryPoints:['src/worker.mjs'],bundle:true,platform:'browser',conditions:['workerd'],format:'esm',external:['./quickjs.wasm'],loader:{'.txt':'text'},outfile:'tests/.run-bundle.mjs',logLevel:'silent'});
 const wasm=await fs.readFile('dist/server/quickjs.wasm');
-const mf=new Miniflare({cf:false,modules:[{type:'ESModule',path:'worker.mjs',contents:await fs.readFile('tests/.run-bundle.mjs','utf8')},{type:'CompiledWasm',path:'quickjs.wasm',contents:wasm}],compatibilityDate:'2026-07-30',bindings:{LAB_SOURCE_COMMIT:'0'.repeat(40),LAB_PUBLICATION_VERSION_ID:'x~t'},outboundService:async req=>{
+const mf=new Miniflare({cf:false,modules:[{type:'ESModule',path:'worker.mjs',contents:await fs.readFile('tests/.run-bundle.mjs','utf8')},{type:'CompiledWasm',path:'quickjs.wasm',contents:wasm}],compatibilityDate:'2026-07-30',bindings:{OWNER_EMAIL:'owner@example.com',ORIGIN:'https://your-site.example.com',LAB_SOURCE_COMMIT:'0'.repeat(40),LAB_PUBLICATION_VERSION_ID:'x~t'},outboundService:async req=>{
   if(req.url.startsWith('https://cloudflare-dns.com/dns-query')){const q=new URL(req.url);return new Response(JSON.stringify({Status:0,Answer:q.searchParams.get('type')==='A'?[{name:q.searchParams.get('name'),type:1,data:'93.184.216.34'}]:[]}),{headers:{'content-type':'application/dns-json'}});}
   if(req.url==='https://example.com/')return new Response('<html><head><title>Example Domain</title></head><body><p>This domain is for use in documentation examples without needing permission.</p></body></html>',{headers:{'content-type':'text/html'}});
   return new Response('not found',{status:404});

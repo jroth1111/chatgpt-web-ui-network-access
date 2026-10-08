@@ -107,10 +107,9 @@ Node.js 22.13+, a ChatGPT account with Sites access, and (optional, for
 ```sh
 git clone https://github.com/YOUR_USERNAME/chatgpt-web-ui-network-access.git
 cd chatgpt-web-ui-network-access
-npm install
-node tests/run.mjs      # workerd protocol suite
-node tests/friction.mjs # adapter/readability/circuit-breaker suite
-node build.mjs          # dist/server/index.js + quickjs.wasm
+npm ci
+npm test                # build, workerd, adapter, regression and privacy checks
+npm run build           # dist/server/index.js + quickjs.wasm
 ```
 
 ### 2. Deploy the Sites worker
@@ -126,11 +125,17 @@ node build.mjs          # dist/server/index.js + quickjs.wasm
    | Binding | Purpose |
    |---|---|
    | `OWNER_EMAIL` | Your authorized owner identity |
+   | `ORIGIN` | The existing Site HTTPS origin, without a path |
+   | `PROJECT_ID` | (optional) Native Site project identity for provenance |
    | `TRAWL_URL` | (optional) Your TRAWL endpoint base URL for `browser_scrape` |
    | `TRAWL_TOKEN` | (optional) Basic-auth password for that endpoint |
 
    Without `TRAWL_URL`, `browser_scrape` returns `route:"fallback"` with
    `trawl_not_configured` — the other 15 tools work regardless.
+
+   Owner and origin bindings are required and read at runtime. Missing values
+   fail closed. Do not replace private values with public-template placeholders
+   in an existing deployment, or embed those values in committed source.
 
 3. Publish the approved version and capture the HTTPS origin. Append `/mcp`
    for the MCP endpoint.
@@ -168,6 +173,9 @@ Verify with `browser_capabilities` — it reports the measured tool inventory.
   HTTPS-only in practice).
 - The connector caches the tool list per ChatGPT session; use a fresh chat
   after deploying new tools.
+- A listed tool or successful build is not live Internet acceptance. Platform
+  restrictions and target denials remain possible; verify returned content,
+  source URL, complete-body hash and explicit truncation fields.
 
 ## License
 

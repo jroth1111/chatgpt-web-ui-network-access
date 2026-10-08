@@ -208,15 +208,19 @@ await tasync('scrape text capped at 22000 (envelope-safe)',async()=>{
 // ---------- MCP-level ----------
 import {build} from 'esbuild';
 await build({entryPoints:[new URL('./friction-mcp-entry.mjs',import.meta.url).pathname],bundle:true,platform:'browser',format:'esm',loader:{'.txt':'text','.wasm':'file'},outfile:'tests/.friction-mcp-bundle.mjs',logLevel:'silent'});
-const {mcp,TOOLS}=await import('./.friction-mcp-bundle.mjs');
-const {OWNER_EMAIL,ORIGIN}=await import('../src/config.mjs');
+const {mcp,TOOLS,authorized}=await import('./.friction-mcp-bundle.mjs');
+const OWNER_EMAIL='owner@example.com',ORIGIN='https://your-site.example.com';
+const ownerRequest=()=>new Request(ORIGIN+'/mcp',{headers:{'oai-authenticated-user-id':'synthetic-owner','oai-authenticated-user-email':OWNER_EMAIL}});
+t('authorization fails closed when owner/origin bindings are missing',()=>assert.equal(authorized(ownerRequest(),{}),false));
+t('authorization uses exact private runtime bindings with normalized owner',()=>assert.equal(authorized(ownerRequest(),{OWNER_EMAIL:OWNER_EMAIL.toUpperCase(),ORIGIN}),true));
+t('authorization rejects a mismatched configured origin',()=>assert.equal(authorized(ownerRequest(),{OWNER_EMAIL,ORIGIN:'https://other.example.invalid'}),false));
 const call=async(name,arguments_,env={})=>{
   const request=new Request(ORIGIN+'/mcp',{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream','oai-authenticated-user-id':'t','oai-authenticated-user-email':OWNER_EMAIL},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:arguments_}}),signal:AbortSignal.timeout(280000)});
-  const res=await mcp(request,env);return {status:res.status,data:await res.json()};
+  const res=await mcp(request,{OWNER_EMAIL,ORIGIN,...env});return {status:res.status,data:await res.json()};
 };
 await tasync('tools/list has 16 tools incl browser_scrape_batch',async()=>{
   const request=new Request(ORIGIN+'/mcp',{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream','oai-authenticated-user-id':'t','oai-authenticated-user-email':OWNER_EMAIL},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})});
-  const res=await mcp(request,{});const data=await res.json();
+  const res=await mcp(request,{OWNER_EMAIL,ORIGIN});const data=await res.json();
   const names=data.result.tools.map(x=>x.name);
   assert.equal(names.length,16);
   assert(names.includes('browser_scrape_batch'));

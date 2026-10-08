@@ -1,8 +1,8 @@
 {
   "manifest_version": 1,
-  "software_version": "2.7.18",
-  "snapshot_utc": "2026-10-05T02:54:23Z",
-  "scope": "Full src directory only; no source changes, environment secrets, credentials, dependencies or Git history. Build tooling and lockfile are outside this requested snapshot.",
+  "software_version": "2.7.19",
+  "snapshot_utc": "2026-10-08T09:51:27.611Z",
+  "scope": "Full src directory; public source hashes only. Runtime bindings, credentials, dependency files and Git history are outside this inventory.",
   "files": {
     "src/acorn-vendor.mjs": {
       "bytes": 197679,
@@ -21,8 +21,8 @@
       "sha256": "5f2153cd9229446406aee4e165b7b46c14cc0421b36ee73a1ecdb0f0a88eec62"
     },
     "src/config.mjs": {
-      "bytes": 308,
-      "sha256": "9ea3ce676d7e6f075f94980595a39289769b3c850713bece7d11a3eca47497e7"
+      "bytes": 998,
+      "sha256": "05c194fa1902f14e99f6690a0e4a76d1d672cb16aad4c7a98568c7ae09d0d19f"
     },
     "src/diagnostic-script.txt": {
       "bytes": 2927,
@@ -65,8 +65,8 @@
       "sha256": "45712cc5455775103a0d6128cd62e770c776a17134ae986fa08c89c671948ce2"
     },
     "src/mcp.mjs": {
-      "bytes": 40928,
-      "sha256": "94d610e69955dbb4ccd94bd929d450fea7eddde5314a08c3e71c69ee24dde8e8"
+      "bytes": 41108,
+      "sha256": "71d32233985f3a8cdb2c09f15c23ec11c94dcc4d887b49352144566a1bee1acc"
     },
     "src/merge-profile.mjs": {
       "bytes": 444,
@@ -104,6 +104,10 @@
       "bytes": 503134,
       "sha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
     },
+    "src/readability.mjs": {
+      "bytes": 3368,
+      "sha256": "5d3457bb564f0db4774be463039522442486e44eb7d930256cea2c67815b64f2"
+    },
     "src/remote-execution.mjs": {
       "bytes": 31420,
       "sha256": "9d77a4bbaa4086ee2ac817726f195004b666a65644e3c133007eec691e861a41"
@@ -133,16 +137,12 @@
       "sha256": "968f38f1467649440b45c321e498eba954995e511031d5ac6c55ad747065afde"
     },
     "src/trawl-adapter.mjs": {
-      "bytes": 15477,
-      "sha256": "40a62dd185ecb4af49b09da4cfce74b1cb4dafcfc2f8129f8a3a04bd9fb9baf5"
+      "bytes": 18188,
+      "sha256": "055e6b6ab47ee9c76b00495795c9a7ae8501ffad162f53d937637327b22624a5"
     },
     "src/worker.mjs": {
-      "bytes": 5644,
-      "sha256": "9158a73e55e223a2157760a25fe66a5d01fa83f1560eb134fd10f136015b71e9"
-    },
-    "src/readability.mjs": {
-      "bytes": 3368,
-      "sha256": "5d3457bb564f0db4774be463039522442486e44eb7d930256cea2c67815b64f2"
+      "bytes": 5648,
+      "sha256": "a0f4806060487d1cbbb64a65209b7dc7af65cfd03ef7c6394f4514e20562e80e"
     }
   },
   "build": "RECOMPUTED_AT_DEPLOY"

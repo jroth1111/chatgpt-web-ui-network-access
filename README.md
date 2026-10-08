@@ -40,8 +40,8 @@ contains the application source — not a hosted public service.
 ┌──────────────────────────────▼──────────────────────────────────────┐
 │ 3. Your VPS — browser-grade scraping endpoint (optional)             │
 │                                                                      │
-│  • TRAWL (FlareSolverr-compatible): real Chrome/Camoufox behind      │
-│    Docker, with WAF/challenge solving and cookie session cache       │
+│  • TRAWL may serve HTTP or escalate through browser tiers           │
+│    /v1 does not identify the tier; native /scrape does                │
 │  • Sessions persist in Redis on the VPS — never in the Sites worker  │
 │  • Hardened: read-only containers, dropped capabilities, non-root    │
 │  • Stateless from the worker's perspective: one POST per scrape      │
@@ -52,8 +52,9 @@ contains the application source — not a hosted public service.
 
 **What does NOT run where:** no Chromium/browser in the Sites worker (page
 execution is QuickJS approximation); no arbitrary code execution on the VPS
-beyond TRAWL's own scraping engine; credentials never leave the caller's
-explicit tool arguments — the worker holds no cookie jar and no Sites identity.
+beyond TRAWL's own scraping engine. Open-fetch credentials come only from
+explicit caller arguments; Sites identity/OAuth is never forwarded. The optional
+scraper uses its separate private operator binding, not caller or Sites identity.
 
 - **Failover is explicit, never silent.** When the browser-grade endpoint is
   unavailable, `browser_scrape` returns `route:"fallback"` with a reason so the
@@ -98,11 +99,14 @@ explicit tool arguments — the worker holds no cookie jar and no Sites identity
 - **Readability extraction**: `browser_scrape` returns cleaned text/title/links
   server-side (22KB cap) — the model sees content, not truncated HTML.
 - **SPA/login-shell detection**: results flag `app_shell_suspected` with reasons
-  (SPA mount nodes, low visible text, login screens) so JS-heavy pages route to
-  the browser tier instead of producing empty shells.
+  (SPA mount nodes, low visible text, login screens). Detection does not reroute
+  automatically: callers must explicitly request native `render: true` when
+  rendered content is needed, and still inspect readiness/content evidence.
 - **Circuit breaker**: consecutive probe timeouts widen cooldown exponentially
-  (60s→240s, capped); healthy responses reset it; solve errors and caller aborts
-  never pollute availability state.
+  (60s→240s, capped); healthy responses reset it. Recognized target solve errors
+  and caller aborts do not poison health. Opaque upstream 500/proxy/service
+  errors still trigger an isolate-local cooldown; a successful call in another
+  isolate does not establish that the failed isolate remained healthy.
 - **Anti-herd jitter**: probe retries stagger across isolates.
 - **4xx/5xx classification**: TRAWL request-level errors don't block subsequent
   unrelated URLs; only endpoint-health failures do.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
-  "software_version": "2.7.23",
-  "snapshot_utc": "2026-10-09T06:26:26.255Z",
+  "software_version": "2.7.24",
+  "snapshot_utc": "2026-10-09T06:45:36.890Z",
   "scope": "Full src directory; public source hashes only. Runtime bindings, credentials, dependency files and Git history are outside this inventory.",
   "files": {
     "src/acorn-vendor.mjs": {
@@ -22,7 +22,7 @@
     },
     "src/config.mjs": {
       "bytes": 998,
-      "sha256": "93b40ebcdecc3e20f1d1a03aa1f6eac163676230a822a08eef4e10f1a72f79a4"
+      "sha256": "1cff61c7492a5a4f697ac6a1442aeb7ab920526958e7b4672ffe2e93ec77ed25"
     },
     "src/diagnostic-script.txt": {
       "bytes": 2927,

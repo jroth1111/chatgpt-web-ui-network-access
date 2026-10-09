@@ -13,7 +13,9 @@ contains the application source — not a hosted public service.
 `npm run build` executes the actual compiled Worker in isolated workerd before
 writing `dist/.openai/artifact-manifest.json`. It checks the 16-tool inventory,
 software version, source/build fingerprint, and invalid-URI rejection without
-contacting external targets. The build fingerprint now includes release scripts,
+contacting external targets. Generated hosting JSON is finalized using the
+Sites packager's serialization before recording hashes; source settings and
+JSON semantics are unchanged. The build fingerprint now includes release scripts,
 and dirty script changes cannot be advertised as a clean baked Git commit.
 
 `npm run check:artifact` verifies the existing output without rebuilding: runtime

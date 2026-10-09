@@ -40,6 +40,17 @@ export async function sourceDigest(root,inputs){
  }
  return sha256(JSON.stringify(Object.fromEntries(Object.entries(files).sort(([a],[b])=>compare(a,b)))));
 }
+// The supported Sites packager reserializes generated hosting JSON this way.
+// Finalize those bytes BEFORE hashing; verification itself never normalizes.
+export async function normalizeHosting(artifact){
+ artifact=path.resolve(artifact);await inventory(artifact);
+ const file=contained(artifact,path.join(artifact,'.openai/hosting.json'));
+ const before=await readFile(file,'utf8'),hosting=JSON.parse(before);
+ assert(hosting&&typeof hosting==='object'&&!Array.isArray(hosting),'Hosting manifest must be an object');
+ const after=JSON.stringify(hosting,null,2)+'\n';
+ if(after!==before)await writeFile(file,after);
+ return {hosting_serialization:'finalized',changed:after!==before};
+}
 export async function finalizeManifest(project,artifact,metadata,{write=false}={}){
  const files=await inventory(artifact,[MANIFEST]),expected={schema:1,...metadata,artifact_sha256:sha256(JSON.stringify(files)),files};
  const file=contained(artifact,path.join(artifact,MANIFEST));

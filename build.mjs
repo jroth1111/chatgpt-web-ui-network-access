@@ -3,6 +3,7 @@ import {mkdir,rm,copyFile,readFile,cp} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {computeBuildId} from './scripts/build-input.mjs';
 import {checkArtifact} from './scripts/check-artifact-runtime.mjs';
+import {normalizeHosting} from './scripts/artifact-support.mjs';
 const buildId=await computeBuildId();
 let sourceCommit='';
 try{
@@ -25,4 +26,5 @@ await copyFile('src/quickjs.wasm','dist/server/quickjs.wasm');
 await copyFile('.openai/hosting.json','dist/.openai/hosting.json');
 await cp('drizzle','dist/.openai/drizzle',{recursive:true});
 console.log('built dist/server/index.js');
+await normalizeHosting('dist');
 console.log(JSON.stringify(await checkArtifact({write:true})));

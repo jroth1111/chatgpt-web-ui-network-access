@@ -1,3 +1,15 @@
+# 2.7.22
+
+- Fix the live Firefox DNS-error classification mismatch: a legacy HTTP-500
+  error with NS_ERROR_UNKNOWN_HOST is a target DNS failure only when its
+  solution URL/status bind it to the exact request. Proxy-specific or unbound
+  errors remain service/unknown failures. Real invalid-domain failures are
+  still returned; they no longer masquerade as whole-endpoint outages.
+- Preserve the separate D1 schema, all incident history, cooldowns and auth
+  latches across publication. Expose the nonsecret target-binding boolean in
+  diagnostic evidence. Add the live-shaped regression and proxy/mismatch
+  negative cases. Live post-deployment proof is still required.
+
 # 2.7.21
 
 - Persist endpoint cooldowns, redacted failure aggregates and authentication

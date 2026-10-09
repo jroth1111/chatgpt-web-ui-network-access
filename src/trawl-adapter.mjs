@@ -11,7 +11,7 @@ import {cancelBestEffort,waitBounded} from './cleanup.mjs';
 import {Sha256} from './sha256.mjs';
 import {parseHTML} from 'linkedom';
 import {UpstreamStateStore,resetEphemeralUpstreamState,KNOWN_UPSTREAM_ERRORS} from './upstream-state.mjs';
-import {failureEvidence} from './upstream-errors.mjs';
+import {failureEvidence,legacyTargetBound} from './upstream-errors.mjs';
 export const TRAWL_LIMITS=Object.freeze({
   probe_ttl_ms:30000,          // availability result cache
   failure_cooldown_ms:60000,   // after a hard failure, skip TRAWL this long
@@ -50,6 +50,10 @@ function storeFor(config,provided){
 function targetFailure(envelope,targetUrl){
  if(envelope?.status!=='error'&&typeof envelope?.error!=='string')return null;
  const message=String(envelope.message||envelope.error||'');
+ // Firefox reports target DNS with NS_ERROR_UNKNOWN_HOST; proxy lookup has
+ // its own distinct code. Require the legacy envelope's exact request binding
+ // before classifying an error that does not name the requested hostname.
+ if(/\bNS_ERROR_UNKNOWN_HOST\b/.test(message)&&!/\bNS_ERROR_(?:UNKNOWN_PROXY_HOST|PROXY_[A-Z_]+)\b/.test(message)&&legacyTargetBound(envelope,targetUrl))return 'target_name_not_resolved';
  const browser=message.match(/\bERR_(?:NAME_NOT_RESOLVED|CERT_[A-Z_]+|CONNECTION_REFUSED|CONNECTION_RESET|ADDRESS_UNREACHABLE|BLOCKED_BY_[A-Z_]+)\b/)?.[0];
  if(browser&&KNOWN_UPSTREAM_ERRORS.has(browser))return browser;
  const host=message.match(/(?:Could not resolve host:\s*|getaddrinfo ENOTFOUND\s+)([a-z0-9.-]+)/i)?.[1];

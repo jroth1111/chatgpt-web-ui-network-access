@@ -12,7 +12,7 @@ export function safeFailureEvidence(value={}){
  const out={};
  if(['json','text','empty','unread'].includes(value.format))out.format=value.format;
  if(['dns','tls','connection','proxy','pool','timeout','validation','service','unknown'].includes(value.message_class))out.message_class=value.message_class;
- for(const key of ['target_host_mentioned','legacy_error_envelope','native_error_envelope','has_message','has_error','has_detail','has_timings'])if(typeof value[key]==='boolean')out[key]=value[key];
+ for(const key of ['target_host_mentioned','legacy_target_url_matches','legacy_error_envelope','native_error_envelope','has_message','has_error','has_detail','has_timings'])if(typeof value[key]==='boolean')out[key]=value[key];
  for(const key of ['http_status','body_bytes','known_error_count'])if(Number.isSafeInteger(value[key])&&value[key]>=0&&value[key]<=8*1024*1024)out[key]=value[key];
  if(Array.isArray(value.known_errors))out.known_errors=value.known_errors.filter(x=>KNOWN_UPSTREAM_ERRORS.has(x)).slice(0,8);
  return out;

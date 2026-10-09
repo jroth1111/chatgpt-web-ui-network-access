@@ -14,6 +14,20 @@ test('target failure survives a new facade without suppressing another valid tar
   const success=await trawlScrape('https://example.com/',{},config,{fetchImpl:async p=>String(p).endsWith('/health')?healthy():page()});assert.equal(success.ok,true);assert.doesNotMatch(JSON.stringify(await store.incidents()),/secret|missing\.invalid|operator\.example/);
  }finally{db.sql.close();}
 });
+test('live-shaped Firefox unknown-host envelope is target-scoped only with exact request binding',async()=>{
+ const db=database(),config={url,stateDb:db,requireDurable:true},target='https://firefox-fixture.invalid/';try{
+  const envelope={status:'error',message:'page.goto: NS_ERROR_UNKNOWN_HOST',solution:{url:target,status:0,response:'',headers:{},cookies:[],userAgent:''}};
+  const failed=await trawlScrape(target,{},config,{fetchImpl:async p=>String(p).endsWith('/health')?healthy():Response.json(envelope,{status:500})});
+  assert.equal(failed.reason,'trawl_error:target_name_not_resolved');assert.equal(failed.failure_evidence.legacy_target_url_matches,true);assert.equal(failed.upstream_state.available,true);assert.equal(failed.upstream_state.targetFailures,1);
+  assert.equal((await trawlScrape('https://example.com/',{},config,{fetchImpl:async p=>String(p).endsWith('/health')?healthy():page()})).ok,true);
+ }finally{db.sql.close();}
+});
+for(const [code,bound] of [['NS_ERROR_UNKNOWN_PROXY_HOST',true],['NS_ERROR_UNKNOWN_HOST',false]])test(`Firefox ${code} bound=${bound} cannot be guessed as a target DNS fault`,async()=>{
+ const db=database(),config={url,stateDb:db,requireDurable:true};try{
+  const target='https://firefox-fixture.invalid/',envelope={status:'error',message:'page.goto: '+code,solution:{url:bound?target:'https://different.example.invalid/',status:0,response:''}};
+  const r=await trawlScrape(target,{},config,{fetchImpl:async p=>String(p).endsWith('/health')?healthy():Response.json(envelope,{status:500})});assert.equal(r.upstream_state.available,false);assert.equal(r.upstream_state.targetFailures,0);
+ }finally{db.sql.close();}
+});
 test('opaque upstream failure persists an honest unknown class and cross-instance cooldown',async()=>{
  const db=database(),config={url,stateDb:db,requireDurable:true};try{
   const fail=await trawlScrape('https://example.com/',{},config,{fetchImpl:async p=>String(p).endsWith('/health')?healthy():new Response('Internal Server Error',{status:500})});

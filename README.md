@@ -120,6 +120,10 @@ scraper uses its separate private operator binding, not caller or Sites identity
   exposes current durable counters and the most recent eight redacted aggregate
   records, not raw URLs/errors/secrets. Unknown 500s are not yet a diagnosed root
   cause merely because their tracking is durable.
+  Firefox `NS_ERROR_UNKNOWN_HOST` is recognized as a target DNS failure only
+  with an exact legacy request-URL/status binding; proxy-specific and unbound
+  errors remain distinct. The failing target still reports a failure, while
+  unrelated valid targets need not inherit a falsely opened global circuit.
 - **Anti-herd jitter**: probe retries stagger across isolates.
 - **4xx/5xx classification**: TRAWL request-level errors don't block subsequent
   unrelated URLs; only endpoint-health failures do.

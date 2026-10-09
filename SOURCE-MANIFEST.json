@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
-  "software_version": "2.7.20",
-  "snapshot_utc": "2026-10-08T13:44:57.374Z",
+  "software_version": "2.7.21",
+  "snapshot_utc": "2026-10-09T00:43:20.897Z",
   "scope": "Full src directory; public source hashes only. Runtime bindings, credentials, dependency files and Git history are outside this inventory.",
   "files": {
     "src/acorn-vendor.mjs": {
@@ -22,7 +22,7 @@
     },
     "src/config.mjs": {
       "bytes": 998,
-      "sha256": "5251156b320854b1268b7f3fbaed922c9afab6956d08a6e5c78ae1b05eac6488"
+      "sha256": "e6ce84461966eb837678a66c57206fb7800ef2af0af7c66d137ca564bd76e194"
     },
     "src/diagnostic-script.txt": {
       "bytes": 2927,
@@ -69,8 +69,8 @@
       "sha256": "45712cc5455775103a0d6128cd62e770c776a17134ae986fa08c89c671948ce2"
     },
     "src/mcp.mjs": {
-      "bytes": 42037,
-      "sha256": "81585cc034138a829bf1b2064f9635d280a5ed2b86feb398fcd1e97ef907d46e"
+      "bytes": 43075,
+      "sha256": "981d20990b6ae3889bce2cd0f7a24b425be275dca5174aa2b89776591a8b5b94"
     },
     "src/merge-profile.mjs": {
       "bytes": 444,
@@ -141,8 +141,16 @@
       "sha256": "968f38f1467649440b45c321e498eba954995e511031d5ac6c55ad747065afde"
     },
     "src/trawl-adapter.mjs": {
-      "bytes": 21206,
-      "sha256": "5dc05a7c25221b0676253b22313dd74c415f81afb25d0892440aa50404438c9b"
+      "bytes": 22627,
+      "sha256": "ee7abbfbf30bfa7c7074772dff083b20ee7aab1dadb732d63bbf286997518b16"
+    },
+    "src/upstream-errors.mjs": {
+      "bytes": 2388,
+      "sha256": "5322a84d98714d604e807e3b0b7afadd0c65c997471ab4608285796f3fd29896"
+    },
+    "src/upstream-state.mjs": {
+      "bytes": 10417,
+      "sha256": "0fcf8b4b042ddffb6686e7191cfb94cef6f7124eeff1e5bcfc49acf0a568d923"
     },
     "src/worker.mjs": {
       "bytes": 5648,

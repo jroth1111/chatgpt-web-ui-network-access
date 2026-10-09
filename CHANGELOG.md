@@ -1,3 +1,18 @@
+# 2.7.21
+
+- Persist endpoint cooldowns, redacted failure aggregates and authentication
+  stop latches in a separate private D1 binding, UPSTREAM_STATE. Transactional
+  incident/health writes, sequence-fenced outcomes, and an expiring probe lease
+  coordinate new Worker instances without deleting existing history.
+- Require the binding for configured MCP scraping; missing/unavailable state
+  fails explicitly, not silently as an in-memory durability guarantee.
+- Capture bounded fixed-class upstream error evidence at runtime using existing
+  operator credentials. Raw errors, URLs, cookies, tokens and lease handles are
+  not exposed or persisted. Opaque 500 causes remain unknown pending live proof.
+- Include schema migrations in the deployment artifact and build identity.
+- Add SQLite and two-independent-workerd/D1 persistence, race, crash/rollback,
+  auth-latch, missing-binding and diagnostic-redaction regressions.
+
 # 2.7.20
 
 - Repair DNS-over-TCP: fixed non-Cloudflare resolver, clear transport and no

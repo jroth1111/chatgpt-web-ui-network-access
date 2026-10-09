@@ -1,6 +1,6 @@
 {
   "project_id": "ASSIGNED_BY_SITES",
-  "d1": null,
+  "d1": "UPSTREAM_STATE",
   "r2": null,
   "capabilities": ["mcp"]
 }

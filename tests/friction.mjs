@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {trawlScrape,trawlScrapeBatch,trawlState,resetTrawlState,TRAWL_LIMITS} from '../src/trawl-adapter.mjs';
 import {extractReadable,detectAppShell} from '../src/readability.mjs';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
 
 let passed=0,failed=0;
 const t=(name,fn)=>{try{fn();passed++;console.log('PASS',name)}catch(e){failed++;console.log('FAIL',name,String(e.message).slice(0,220))}};
@@ -227,11 +229,15 @@ await tasync('tools/list has 16 tools incl browser_scrape_batch',async()=>{
 });
 await tasync('MCP batch scrape end-to-end via fixture',async()=>{
   resetTrawlState();FIX.mode='ok';
-  const r=await call('browser_scrape_batch',{urls:[{url:'https://example.com/a'},{url:'https://example.com/b'}]},{TRAWL_URL:'http://127.0.0.1:'+server.address().port,TRAWL_TOKEN:'tk'});
+  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync(new URL('../drizzle/0000_upstream_recovery.sql',import.meta.url),'utf8'));
+  function prepare(sql,args=[]){return {sql,args,bind(...v){return prepare(sql,v);},async first(){return sqlite.prepare(sql).get(...args)??null;},async all(){return {results:sqlite.prepare(sql).all(...args)};},async run(){return {meta:{changes:sqlite.prepare(sql).run(...args).changes}};}};}
+  const db={prepare,async batch(statements){sqlite.exec('BEGIN');try{const r=statements.map(s=>({meta:{changes:sqlite.prepare(s.sql).run(...s.args).changes}}));sqlite.exec('COMMIT');return r;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
+  const r=await call('browser_scrape_batch',{urls:[{url:'https://example.com/a'},{url:'https://example.com/b'}]},{TRAWL_URL:'http://127.0.0.1:'+server.address().port,TRAWL_TOKEN:'tk',UPSTREAM_STATE:db});sqlite.close();
   const out=r.data.result.structuredContent;
   assert.equal(out.route,'trawl',JSON.stringify(out).slice(0,200));
   assert.equal(out.ok_count,2);
   assert(out.results.every(x=>x.text&&x.text.includes('content for')));
+  assert.equal(out.upstream_state.durability,'D1');
 });
 await tasync('MCP batch validation rejects 1 url',async()=>{
   const r=await call('browser_scrape_batch',{urls:[{url:'https://example.com/'}]});

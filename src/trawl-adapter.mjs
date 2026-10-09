@@ -10,6 +10,8 @@ import {extractReadable,detectAppShell} from './readability.mjs';
 import {cancelBestEffort,waitBounded} from './cleanup.mjs';
 import {Sha256} from './sha256.mjs';
 import {parseHTML} from 'linkedom';
+import {UpstreamStateStore,resetEphemeralUpstreamState,KNOWN_UPSTREAM_ERRORS} from './upstream-state.mjs';
+import {failureEvidence} from './upstream-errors.mjs';
 export const TRAWL_LIMITS=Object.freeze({
   probe_ttl_ms:30000,          // availability result cache
   failure_cooldown_ms:60000,   // after a hard failure, skip TRAWL this long
@@ -26,105 +28,85 @@ export const TRAWL_LIMITS=Object.freeze({
 });
 // Config injection: the MCP layer passes {url, token} from env/bindings so the
 // adapter stays testable and free of ambient reads.
-let state={available:null,checkedAt:0,failures:0,lastError:null,lastLatency:0,consecutiveTimeouts:0,circuitCooldownUntil:0};
+const blankState=()=>({available:null,checkedAt:0,failures:0,lastError:null,lastLatency:0,consecutiveTimeouts:0,circuitCooldownUntil:0,durability:'ephemeral_unconfigured'});
+let state=blankState(); // observation mirror only; never authoritative for D1 routing
 export function trawlState(){return {...state};}
-export function resetTrawlState(){state={available:null,checkedAt:0,failures:0,lastError:null,lastLatency:0,consecutiveTimeouts:0,circuitCooldownUntil:0};}
-// Exponential circuit breaker: after N consecutive timeouts, widen the cooldown
-// 60s → 120s → 240s (capped). Distinguishes timeouts (network hanging) from
-// clean failures (fast health-false) — only timeouts trip the breaker.
-function effectiveCooldown(now=Date.now()){
-  if(state.consecutiveTimeouts>=TRAWL_LIMITS.circuit_breaker_threshold){
-    const exponent=Math.min(state.consecutiveTimeouts-TRAWL_LIMITS.circuit_breaker_threshold,4);
-    return Math.min(TRAWL_LIMITS.failure_cooldown_ms*Math.pow(2,exponent),TRAWL_LIMITS.circuit_max_cooldown_ms);
-  }
-  return TRAWL_LIMITS.failure_cooldown_ms;
-}
+export function resetTrawlState(){state=blankState();resetEphemeralUpstreamState();} // test-only, no durable deletion
 export function isCooldownActive(now=Date.now(),cooldown){
-  if(cooldown!==undefined)return state.available===false && state.failures>0 && (now-state.checkedAt)<cooldown;
-  if(state.circuitCooldownUntil>now)return true;
-  return state.available===false && state.failures>0 && (now-state.checkedAt)<TRAWL_LIMITS.failure_cooldown_ms;
+ if(cooldown!==undefined)return state.available===false&&state.failures>0&&(now-state.checkedAt)<cooldown;
+ return state.authLatched===true||state.circuitCooldownUntil>now||state.available===false&&state.failures>0&&(now-state.checkedAt)<TRAWL_LIMITS.failure_cooldown_ms;
 }
-function recordTimeout(){state.consecutiveTimeouts++;state.circuitCooldownUntil=Date.now()+effectiveCooldown();}
-function recordHealthy(){state.consecutiveTimeouts=0;state.circuitCooldownUntil=0;state.lastError=null;}
-const probeJitter=()=>Math.floor(Math.random()*400); // 0-400ms anti-herd jitter
+const probeJitter=()=>Math.floor(Math.random()*400);
 function authHeaders(config){return config.token?{authorization:'Basic '+btoa('sites:'+config.token)}:{};}
 function safeFailure(error,fallback){
-  const message=String(error?.message||error);
-  return /^(?:probe_deadline|trawl_deadline|trawl_response_limit|trawl_envelope_invalid|trawl_http_\d{3})$/.test(message)?message:fallback;
+ const message=String(error?.message||error);
+ return /^(?:UPSTREAM_STATE_UNAVAILABLE|probe_deadline|trawl_deadline|trawl_response_limit|trawl_envelope_invalid|trawl_http_\d{3})$/.test(message)?message:fallback;
+}
+function storeFor(config,provided){
+ if(provided)return provided;
+ if(config.requireDurable===true&&!config.stateDb)throw Error('UPSTREAM_STATE_UNAVAILABLE');
+ return new UpstreamStateStore(config.stateDb,config.url);
 }
 function targetFailure(envelope,targetUrl){
-  if(envelope?.status!=='error'&&typeof envelope?.error!=='string')return null;
-  // A HTTP 500 alone is not target evidence. Recognize explicit browser target
-  // errors; opaque service errors still degrade endpoint availability.
-  const message=String(envelope.message||envelope.error||'');
-  const browser=message.match(/\bERR_(?:NAME_NOT_RESOLVED|CERT_[A-Z_]+|CONNECTION_REFUSED|CONNECTION_RESET|ADDRESS_UNREACHABLE|BLOCKED_BY_[A-Z_]+)\b/)?.[0];
-  if(browser)return browser;
-  // Curl/Node target DNS failures require the exact requested hostname. A
-  // proxy/operator hostname must never be mistaken for a target failure.
-  const host=message.match(/(?:Could not resolve host:\s*|getaddrinfo ENOTFOUND\s+)([a-z0-9.-]+)/i)?.[1];
-  try{if(host&&host.toLowerCase()===new URL(targetUrl).hostname.toLowerCase())return 'target_name_not_resolved';}catch{}
-  return null;
+ if(envelope?.status!=='error'&&typeof envelope?.error!=='string')return null;
+ const message=String(envelope.message||envelope.error||'');
+ const browser=message.match(/\bERR_(?:NAME_NOT_RESOLVED|CERT_[A-Z_]+|CONNECTION_REFUSED|CONNECTION_RESET|ADDRESS_UNREACHABLE|BLOCKED_BY_[A-Z_]+)\b/)?.[0];
+ if(browser&&KNOWN_UPSTREAM_ERRORS.has(browser))return browser;
+ const host=message.match(/(?:Could not resolve host:\s*|getaddrinfo ENOTFOUND\s+)([a-z0-9.-]+)/i)?.[1];
+ try{if(host&&host.toLowerCase()===new URL(targetUrl).hostname.toLowerCase())return 'target_name_not_resolved';}catch{}
+ return null;
 }
 function publicHeaders(headers){
-  return Object.fromEntries(Object.entries(headers&&typeof headers==='object'&&!Array.isArray(headers)?headers:{}).filter(([key,value])=>typeof value==='string'&&!/(?:^set-cookie$|^cookie$|authorization|^oai-|^x-sites-)/i.test(key)).slice(0,64).map(([key,value])=>[key,value.slice(0,512)]));
+ return Object.fromEntries(Object.entries(headers&&typeof headers==='object'&&!Array.isArray(headers)?headers:{}).filter(([key,value])=>typeof value==='string'&&!/(?:^set-cookie$|^cookie$|authorization|^oai-|^x-sites-)/i.test(key)).slice(0,64).map(([key,value])=>[key,value.slice(0,512)]));
 }
-export async function probeTrawl(config,{fetchImpl=fetch,signal,cooldown}={}){
-  const now=Date.now();
-  if(signal?.aborted)return {available:false,cached:false,error:'caller_abort'};
-  if(!config?.url)return {available:false,cached:true,error:'trawl_not_configured'};
-  if(state.available===true && (now-state.checkedAt)<TRAWL_LIMITS.probe_ttl_ms){
-    return {available:true,cached:true,latency:state.lastLatency,error:null};
-  }
-  if(isCooldownActive(now,cooldown) && state.available!==null){
-    return {available:false,cached:true,cooldown:true,error:state.lastError};
-  }
-  const started=Date.now();
-  let callerAborted=false;
-  // anti-herd: after failures, stagger the retry across isolates (0-400ms)
-  if(state.failures>0&&state.available!==null&&!isCooldownActive(now,cooldown)){
-    let jitter;
-    try{await waitBounded(()=>new Promise(resolve=>{jitter=setTimeout(resolve,probeJitter());}),{signal,error:()=>Error('caller_abort')});}
-    catch{return {available:false,cached:false,error:'caller_abort'};}
-    finally{clearTimeout(jitter);}
-  }
+function publicHealth(detail){
+ if(!detail||typeof detail!=='object')return null;const out={};
+ if(['ok','starting','unavailable','error'].includes(detail.status))out.status=detail.status;
+ if(detail.pool&&typeof detail.pool==='object'){out.pool={};for(const key of ['total','busy','available','stalled','live'])if(Number.isSafeInteger(detail.pool[key])&&detail.pool[key]>=0&&detail.pool[key]<1000000)out.pool[key]=detail.pool[key];}
+ return out;
+}
+export async function probeTrawl(config,{fetchImpl=fetch,signal,cooldown,stateStore}={}){
+ if(signal?.aborted)return {available:false,cached:false,error:'caller_abort'};
+ if(!config?.url)return {available:false,cached:true,error:'trawl_not_configured'};
+ let store,lease,res,callerAborted=false,jitter;
+ const started=Date.now();
+ try{
+  store=storeFor(config,stateStore);const current=await store.read();state=current;const now=Date.now();
+  if(current.authLatched)return {available:false,cached:true,error:'operator_auth_latched',upstream_state:current};
+  if(current.available===true&&now-current.checkedAt<TRAWL_LIMITS.probe_ttl_ms)return {available:true,cached:true,latency:current.lastLatency,error:null,upstream_state:current};
+  if(cooldown!==0&&current.cooldownUntil>now)return {available:false,cached:true,cooldown:true,error:current.lastError,upstream_state:current};
+  if(current.failures>0){try{await waitBounded(()=>new Promise(resolve=>{jitter=setTimeout(resolve,probeJitter());}),{signal,error:()=>Error('caller_abort')});}finally{clearTimeout(jitter);}}
+  lease=await store.claimProbe({ignoreCooldown:cooldown===0});if(!lease.allowed)return {available:false,cached:true,error:lease.reason,retry_after_ms:lease.retry_after_ms,upstream_state:await store.read()};
+  const controller=new AbortController(),deadline=Date.now()+TRAWL_LIMITS.probe_timeout_ms;
+  const abort=()=>{callerAborted=true;controller.abort('caller_abort');};signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+  const wait=operation=>waitBounded(operation,{signal:controller.signal,deadline,error:()=>Error(callerAborted?'caller_abort':'probe_deadline'),onLate:response=>cancelBestEffort(response?.body)});
   try{
-    const controller=new AbortController();
-    const deadline=Date.now()+TRAWL_LIMITS.probe_timeout_ms;
-    const wait=operation=>waitBounded(operation,{signal:controller.signal,deadline,error:()=>Error(callerAborted?'caller_abort':'probe_deadline'),onLate:response=>cancelBestEffort(response?.body)});
-    const abort=()=>{callerAborted=true;controller.abort('caller_abort');};
-    signal?.addEventListener('abort',abort,{once:true});
-    if(signal?.aborted)abort();
-    let res;
-    try{
-      res=await wait(()=>fetchImpl(new URL(config.url.replace(/\/+$/,'')+'/health').href,{signal:controller.signal,headers:authHeaders(config)}));
-      const ok=res.ok;
-      let detail=null;
-      if(ok){try{detail=await wait(()=>res.json());}catch(e){if(controller.signal.aborted||Date.now()>=deadline)throw e;detail=null;}}
-      state={...state,available:ok,checkedAt:Date.now(),failures:ok?0:state.failures+1,lastError:ok?null:'health_http_'+res.status,lastLatency:Date.now()-started};
-      if(ok)recordHealthy();
-      return {available:ok,cached:false,latency:state.lastLatency,detail};
-    }finally{controller.abort('probe_complete');cancelBestEffort(res?.body);signal?.removeEventListener('abort',abort);}
-  }catch(e){
-    // Caller abort is not a TRAWL health signal — return without state pollution.
-    if(callerAborted)return {available:false,cached:false,latency:Date.now()-started,error:'caller_abort'};
-    const msg=safeFailure(e,'trawl_probe_transport_error');
-    if(/probe_deadline/i.test(msg))recordTimeout();
-    state={...state,available:false,checkedAt:Date.now(),failures:state.failures+1,lastError:msg.slice(0,200),lastLatency:Date.now()-started};
-    return {available:false,cached:false,latency:state.lastLatency,error:state.lastError};
-  }
+   res=await wait(()=>fetchImpl(new URL(config.url.replace(/\/+$/,'')+'/health').href,{signal:controller.signal,headers:authHeaders(config)}));
+   let detail=null;if(res.ok){try{detail=await wait(()=>res.json());}catch(e){if(controller.signal.aborted||Date.now()>=deadline)throw e;}}
+   const ok=res.ok&&!['starting','unavailable','error'].includes(detail?.status);
+   if(ok)state=await store.healthy(lease.sequence,Date.now()-started);
+   else state=await store.failure(lease.sequence,'health_http_'+res.status,{scope:[401,403].includes(res.status)?'auth':'service',http_status:res.status,evidence:{format:detail?'json':'unread',http_status:res.status,message_class:'service'}});
+   return {available:ok&&state.available===true,cached:false,latency:Date.now()-started,detail:publicHealth(detail),error:ok?state.available===true?null:state.lastError:'health_http_'+res.status,upstream_state:state};
+  }finally{controller.abort('probe_complete');cancelBestEffort(res?.body);signal?.removeEventListener('abort',abort);}
+ }catch(e){
+  if(callerAborted||signal?.aborted)return {available:false,cached:false,error:'caller_abort',latency:Date.now()-started};
+  const msg=safeFailure(e,'trawl_probe_transport_error');
+  if(store&&lease?.allowed&&msg!=='UPSTREAM_STATE_UNAVAILABLE')try{state=await store.failure(lease.sequence,msg,{scope:'service'});}catch{return {available:false,cached:false,error:'UPSTREAM_STATE_UNAVAILABLE'};}
+  return {available:false,cached:false,latency:Date.now()-started,error:msg,upstream_state:state};
+ }finally{clearTimeout(jitter);if(store&&lease?.token)try{await store.releaseProbe(lease.token);}catch{}}
 }
 // Routing decision — the core of the failover contract.
 // Returns one of:
 //   {route:'trawl', url, init}          -> caller performs this POST
 //   {route:'fallback', reason, probe}   -> caller uses existing guarded stack
-export async function routeTrawl(targetUrl,args,config,{fetchImpl=fetch,signal,cooldown}={}){
+export async function routeTrawl(targetUrl,args,config,{fetchImpl=fetch,signal,cooldown,stateStore}={}){
   if(signal?.aborted)return {route:'fallback',reason:'caller_abort',probe:null};
   if(!config?.url) return {route:'fallback',reason:'trawl_not_configured',probe:null};
   if(args.render!==undefined&&typeof args.render!=='boolean'||args.ready_selector!==undefined&&(args.render!==true||typeof args.ready_selector!=='string'||!args.ready_selector.trim()||args.ready_selector.length>512)||args.render===true&&args.returnOnlyCookies===true)return {route:'fallback',reason:'render_arguments_invalid',probe:null};
   // Plain-HTTP targets hang the TRAWL browser tier (observed live: neverssl.com
   // 120s timeout). Route them to the guarded stack immediately instead.
   if(/^http:\/\//i.test(targetUrl)) return {route:'fallback',reason:'plain_http_target',probe:null};
-  const probe=await probeTrawl(config,{fetchImpl,signal,cooldown});
+  const probe=await probeTrawl(config,{fetchImpl,signal,cooldown,stateStore});
   if(!config?.url||!probe.available) return {route:'fallback',reason:config?.url?'trawl_unavailable:'+String(probe.error||'health_false'):'trawl_not_configured',probe};
   const maxTimeout=Math.min(Math.max(1000,Number(args.timeout_ms)||60000),TRAWL_LIMITS.max_timeout_ms);
   const body=args.render===true?{url:targetUrl,maxTimeout,skipHttp:true,
@@ -141,9 +123,11 @@ export async function routeTrawl(targetUrl,args,config,{fetchImpl=fetch,signal,c
 // Execute the routed request and normalize the envelope. Fallback decisions are
 // surfaced, not hidden: if TRAWL errors at request time, we mark cooldown and
 // return {ok:false, fallback:true} so the caller can retry via guarded stack.
-export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,cooldown}={}){
-  const decision=await routeTrawl(targetUrl,args,config,{fetchImpl,signal,cooldown});
-  if(decision.route==='fallback')return {ok:false,fallback:true,reason:decision.reason,probe:decision.probe};
+export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,cooldown,stateStore}={}){
+  let store;try{if(config?.url)store=storeFor(config,stateStore);}catch{return {ok:false,fallback:true,reason:'UPSTREAM_STATE_UNAVAILABLE'};}
+  const decision=await routeTrawl(targetUrl,args,config,{fetchImpl,signal,cooldown,stateStore:store});
+  if(decision.route==='fallback')return {ok:false,fallback:true,reason:decision.reason,probe:decision.probe,upstream_state:decision.probe?.upstream_state};
+  let sequence;try{sequence=await store.begin();}catch{return {ok:false,fallback:true,reason:'UPSTREAM_STATE_UNAVAILABLE'};}
   const started=Date.now();
   const controller=new AbortController();
   const deadline=started+Math.max(decision.maxTimeout+5000,TRAWL_LIMITS.request_timeout_ms);
@@ -152,7 +136,7 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
   signal?.addEventListener('abort',abort,{once:true});
   if(signal?.aborted)abort();
   const wait=operation=>waitBounded(operation,{signal:controller.signal,deadline,error:()=>Error(callerAborted?'caller_abort':'trawl_deadline'),onLate:response=>cancelBestEffort(response?.body)});
-  let res;
+  let res,errorEvidence=null;
   try{
     res=await wait(()=>fetchImpl(decision.url,{...decision.init,signal:controller.signal}));
     const httpError=()=>{
@@ -169,21 +153,21 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
     const joined=new Uint8Array(bytes);let offset=0;for(const c of chunks){joined.set(c,offset);offset+=c.byteLength;}
     const raw=new TextDecoder().decode(joined);
     if(raw.length>TRAWL_LIMITS.response_bytes)throw Error('trawl_response_limit');
-    let envelope;try{envelope=JSON.parse(raw);}catch{if(!res.ok)throw httpError();throw Error('trawl_envelope_invalid');}
+    let envelope;try{envelope=JSON.parse(raw);}catch{errorEvidence=failureEvidence(raw,null,targetUrl,res.status);if(!res.ok)throw httpError();throw Error('trawl_envelope_invalid');}
+    if(!res.ok||envelope?.status==='error'||envelope?.error!==undefined)errorEvidence=failureEvidence(raw,envelope,targetUrl,res.status);
     if(!res.ok&&!targetFailure(envelope,targetUrl))throw httpError();
     if(!envelope||typeof envelope!=='object'||Array.isArray(envelope))throw Error('trawl_envelope_invalid');
     // Solve envelope: TRAWL is healthy. failures counter stays at 0 — otherwise
     // failures>0 seeds isCooldownActive after the probe TTL expires (ST-3).
-    const responseHealthy=()=>{state={...state,available:true,checkedAt:Date.now(),lastLatency:Date.now()-started,failures:0,lastError:null};recordHealthy();};
+    const responseHealthy=async()=>{state=await store.healthy(sequence,Date.now()-started);};
     const explicitTargetFailure=targetFailure(envelope,targetUrl);
     if(explicitTargetFailure||envelope.status==='error'){
       // TRAWL answered — the endpoint is healthy; the TARGET failed (bad domain,
       // blocked, etc.). Do not trip the availability cooldown: the next call to
       // a different URL should reach TRAWL normally.
       const code=explicitTargetFailure||'target_solve_failed';
-      responseHealthy();
-      state={...state,lastError:code,lastLatency:Date.now()-started};
-      return {ok:false,fallback:true,reason:'trawl_error:'+code,trawl_status:envelope.status,duration_ms:Date.now()-started};
+      await responseHealthy();state=await store.failure(sequence,code,{scope:'target',http_status:res.status,target:targetUrl,evidence:errorEvidence??{}});
+      return {ok:false,fallback:true,reason:'trawl_error:'+code,trawl_status:envelope.status,duration_ms:Date.now()-started,failure_evidence:errorEvidence,upstream_state:state};
     }
     let renderEvidence={protocol:'flaresolverr_v1',browser_execution_reported:null,explanation:'The legacy response does not disclose its tier; route=trawl and a user agent do not prove JavaScript rendering.'};
     let sol=envelope.solution||{};
@@ -195,13 +179,13 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
       if(args.ready_selector!==undefined){
         try{matches=parseHTML(envelope.html).document.querySelectorAll(args.ready_selector).length;}
         catch{return {ok:false,fallback:true,reason:'render_selector_invalid',duration_ms:Date.now()-started};}
-        if(!matches){responseHealthy();return {ok:false,fallback:true,reason:'render_ready_selector_missing',duration_ms:Date.now()-started};}
+        if(!matches){await responseHealthy();return {ok:false,fallback:true,reason:'render_ready_selector_missing',duration_ms:Date.now()-started,upstream_state:state};}
       }
       sol={status:envelope.statusCode,url:envelope.url,response:envelope.html,headers:envelope.responseHeaders,cookies:envelope.cookies,userAgent:envelope.userAgent};
       renderEvidence={protocol:'native_trawl',browser_execution_reported:true,tier:envelope.tier,engine_class:'upstream-reported browser tier; specific engine not independently identified',ready_selector:args.ready_selector??null,ready_selector_matches:matches,selector_scope:'complete returned HTML; not screenshot/layout verification'};
     }else if(envelope.status!=='ok')throw Error('trawl_envelope_invalid');
     if(!Number.isInteger(sol.status)||sol.status<100||sol.status>599||typeof sol.response!=='string'&&args.returnOnlyCookies!==true)throw Error('trawl_envelope_invalid');
-    responseHealthy();
+    await responseHealthy();
     const html=typeof sol.response==='string'?sol.response:'';
     const htmlBytes=new TextEncoder().encode(html);
     // 40K text + links + headers can exceed the 32KB MCP envelope after JSON
@@ -232,6 +216,7 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
       duration_ms:Date.now()-started,
       via:'trawl',
       render_evidence:renderEvidence,
+      upstream_state:state,
     };
   }catch(e){
     const msg=safeFailure(e,'trawl_transport_error');
@@ -241,22 +226,15 @@ export async function trawlScrape(targetUrl,args,config,{fetchImpl=fetch,signal,
     if(callerAborted){
       return {ok:false,fallback:true,reason:'caller_abort',duration_ms:Date.now()-started};
     }
-    const is4xx=e?.trawl4xx===true;
-    if(/trawl_deadline/i.test(msg))recordTimeout();
-    // 4xx from TRAWL: request-level issue — record but keep endpoint available.
-    // 5xx/transport/deadline: endpoint struggling — flip availability + breaker.
-    if(is4xx){
-      state={...state,lastError:msg,lastLatency:Date.now()-started};
-    }else{
-      state={...state,failures:state.failures+1,lastError:msg.slice(0,200),checkedAt:Date.now(),available:false};
-      // recordTimeout already called above for deadlines; no second call (ST-4)
-    }
-    return {ok:false,fallback:true,reason:'trawl_request_failed:'+msg.slice(0,120),duration_ms:Date.now()-started};
+    if(msg==='UPSTREAM_STATE_UNAVAILABLE')return {ok:false,fallback:true,reason:msg,duration_ms:Date.now()-started,durability:'unavailable'};
+    const is4xx=e?.trawl4xx===true,scope=[401,403].includes(e?.httpStatus)?'auth':is4xx?'target':errorEvidence?.message_class==='unknown'?'unknown':'service';
+    try{state=await store.failure(sequence,msg,{scope,http_status:e?.httpStatus??res?.status??null,target:targetUrl,evidence:errorEvidence??{format:'unread'}});}catch{return {ok:false,fallback:true,reason:'UPSTREAM_STATE_UNAVAILABLE',upstream_failure_class:msg,durability:'unavailable'};}
+    return {ok:false,fallback:true,reason:'trawl_request_failed:'+msg.slice(0,120),duration_ms:Date.now()-started,failure_evidence:errorEvidence,upstream_state:state};
   }finally{controller.abort('scrape_complete');cancelBestEffort(res?.body);signal?.removeEventListener('abort',abort);}
 }
 // Parallel batch: N URLs through TRAWL with bounded in-flight concurrency.
 // Shares one availability probe; per-item failures isolated; whole-batch deadline.
-export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,cooldown}={}){
+export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,cooldown,stateStore}={}){
   // MCP layer passes [{url, session}] objects; normalize to targetUrl strings
   // and thread per-item session into the TRAWL body.
   if(!Array.isArray(urls)||!urls.length)return {ok:false,fallback:true,reason:'batch_empty'};
@@ -265,7 +243,8 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
   const plainUrls=items.map(it=>it.url);
   if(urls.length>TRAWL_LIMITS.batch_max_items)return {ok:false,fallback:true,reason:'batch_too_large:'+urls.length+'>'+TRAWL_LIMITS.batch_max_items};
   if(!config?.url)return {ok:false,fallback:true,reason:'trawl_not_configured',probe:null};
-  const probe=await probeTrawl(config,{fetchImpl,signal,cooldown});
+  let store;try{store=storeFor(config,stateStore);}catch{return {ok:false,fallback:true,reason:'UPSTREAM_STATE_UNAVAILABLE'};}
+  const probe=await probeTrawl(config,{fetchImpl,signal,cooldown,stateStore:store});
   if(!probe.available)return {ok:false,fallback:true,reason:'trawl_unavailable:'+String(probe.error||'health_false'),probe};
   const started=Date.now();
   const batchDeadline=Date.now()+TRAWL_LIMITS.batch_timeout_ms;
@@ -277,7 +256,7 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
       const item=items[idx];
       if(Date.now()>=batchDeadline||signal?.aborted){results[idx]={url:item.url,ok:false,fallback:true,reason:'batch_deadline'};continue;}
       try{
-        const single=await trawlScrape(item.url,{...args,session:item.session,...(item.ready_selector!==undefined?{ready_selector:item.ready_selector}:{}),timeout_ms:Math.min(Number(args.timeout_ms)||60000,Math.max(1000,batchDeadline-Date.now()))},config,{fetchImpl,signal,cooldown});
+        const single=await trawlScrape(item.url,{...args,session:item.session,...(item.ready_selector!==undefined?{ready_selector:item.ready_selector}:{}),timeout_ms:Math.min(Number(args.timeout_ms)||60000,Math.max(1000,batchDeadline-Date.now()))},config,{fetchImpl,signal,cooldown,stateStore:store});
         // compact per-item result: full text/html excluded from batch responses
         // (10 × 40KB text + 256KB html would blow the 32KB MCP envelope). Full
         // bodies remain available via single browser_scrape calls.
@@ -287,7 +266,7 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
           bytes:single.bytes,body_sha256:single.body_sha256,hash_scope:single.hash_scope,cookies:single.cookies,duration_ms:single.duration_ms,via:single.via,
           render_evidence:single.render_evidence,
           ...(single.app_shell_suspected?{app_shell_suspected:true,shell_reasons:single.shell_reasons}:{}),
-        }:{url:item.url,ok:false,route:'fallback',fallback:single.fallback,reason:single.reason,fallback_reason:single.reason,duration_ms:single.duration_ms};
+        }:{url:item.url,ok:false,route:'fallback',fallback:single.fallback,reason:single.reason,fallback_reason:single.reason,duration_ms:single.duration_ms,failure_evidence:single.failure_evidence,upstream_state:single.upstream_state};
       }catch(e){
         results[idx]={url:item.url,ok:false,fallback:true,reason:'item_error:'+safeFailure(e,'batch_item_error')};
       }
@@ -305,5 +284,6 @@ export async function trawlScrapeBatch(urls,args,config,{fetchImpl=fetch,signal,
     results,
     via:'trawl',
     duration_ms:Date.now()-started,
+    upstream_state:await store.read(),
   };
 }

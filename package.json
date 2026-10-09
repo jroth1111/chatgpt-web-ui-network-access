@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-web-ui-network-access",
-  "version": "2.7.20",
+  "version": "2.7.21",
   "private": true,
   "type": "module",
   "description": "Unrestricted network access MCP tools for ChatGPT Sites: open HTTP fetch, raw TCP, WebSockets, and browser-grade scraping with failover",

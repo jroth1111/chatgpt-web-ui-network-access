@@ -32,7 +32,7 @@ contains the application source — not a hosted public service.
 │     – guarded public reads (DNS admission, quality gates)            │
 │     – browser_open_fetch: unrestricted HTTP(S) via platform fetch    │
 │     – edge tools: raw TCP via cloudflare:sockets, WebSockets         │
-│  • Holds probe/breaker availability state — per-isolate, ephemeral   │
+│  • D1 persists upstream recovery state across Worker instances      │
 │  • NO browser/Chromium here; no filesystem; no persistent cookies    │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │ one HTTPS POST → /v1 or /scrape (Basic auth)
@@ -105,8 +105,21 @@ scraper uses its separate private operator binding, not caller or Sites identity
 - **Circuit breaker**: consecutive probe timeouts widen cooldown exponentially
   (60s→240s, capped); healthy responses reset it. Recognized target solve errors
   and caller aborts do not poison health. Opaque upstream 500/proxy/service
-  errors still trigger an isolate-local cooldown; a successful call in another
-  isolate does not establish that the failed isolate remained healthy.
+  errors still trigger a persisted cooldown while their cause is unknown.
+- **Durable recovery state:** configured MCP scraping requires its own private
+  D1 binding, `UPSTREAM_STATE`, declared in `.openai/hosting.json`. The supplied
+  schema-only `drizzle/` migration is packaged into `dist/.openai/drizzle/` and
+  applied through the normal Sites publication workflow. Do not connect another
+  app's caption/financial database or copy a private native hosting identity.
+  Cooldowns, fixed-class incident aggregates and auth stop latches survive new
+  Worker instances. An expiring lease admits one health probe after cooldown;
+  sequence fences stop older responses from overwriting newer outcomes.
+  Recovery is on demand, not a background target-retry loop. Operator auth
+  denials stay latched; remediation requires an authorized owner workflow.
+  State-storage failures are explicit. `browser_capabilities.upstream_recovery`
+  exposes current durable counters and the most recent eight redacted aggregate
+  records, not raw URLs/errors/secrets. Unknown 500s are not yet a diagnosed root
+  cause merely because their tracking is durable.
 - **Anti-herd jitter**: probe retries stagger across isolates.
 - **4xx/5xx classification**: TRAWL request-level errors don't block subsequent
   unrelated URLs; only endpoint-health failures do.
@@ -174,8 +187,9 @@ Verify with `browser_capabilities` — it reports the measured tool inventory.
   failover is a typed routing decision disclosed in every response.
 - Caller-supplied credentials (headers, bodies) are explicit per-call arguments;
   the worker has no cookie jar and never forwards Sites identity.
-- Probe/failure state is per-isolate and self-healing; a dead TRAWL endpoint
-  degrades to the guarded stack within one probe timeout (4s).
+- Probe/failure state is shared through the separate private D1 binding;
+  persisted cooldown expiry permits an owned health probe on demand. A dead
+  endpoint returns explicit fallback within the bounded probe budget (4s).
 
 ## Known limitations
 

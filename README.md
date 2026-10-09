@@ -8,6 +8,25 @@ plus a full guarded public-read stack with DNS admission.
 Deploy your own instance and connect it to your ChatGPT account. This repository
 contains the application source — not a hosted public service.
 
+## Build and archive gates
+
+`npm run build` executes the actual compiled Worker in isolated workerd before
+writing `dist/.openai/artifact-manifest.json`. It checks the 16-tool inventory,
+software version, source/build fingerprint, and invalid-URI rejection without
+contacting external targets. The build fingerprint now includes release scripts,
+and dirty script changes cannot be advertised as a clean baked Git commit.
+
+`npm run check:artifact` verifies the existing output without rebuilding: runtime
+checks, exact packaged bytes, source inputs and the WASM payload must still match.
+Run it against the unchanged output being archived/uploaded. Source-only tests
+or `SOURCE-MANIFEST.json` do not prove that a packaged Worker runs the new code.
+These isolated checks also do **not** prove active hosted routing; independently
+read back `software_version` and `build_id` through the actual installed app.
+
+Regenerate the public source inventory with `npm run update:manifest` after
+intentional source/version changes. No environment values or Git history are
+included in that inventory.
+
 ## What runs where
 
 ```text

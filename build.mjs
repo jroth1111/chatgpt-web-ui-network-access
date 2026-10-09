@@ -1,17 +1,12 @@
 import {build} from 'esbuild';
 import {mkdir,rm,copyFile,readFile,cp} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {readdir} from 'node:fs/promises';
-const hash=createHash('sha256');
-for(const file of (await readdir('src')).sort()){hash.update(file);hash.update(await readFile('src/'+file));}
-for(const file of ['package.json','package-lock.json','build.mjs'])hash.update(await readFile(file));
-for(const file of (await readdir('drizzle',{recursive:true})).filter(x=>/\.(?:sql|json)$/.test(x)).sort()){hash.update(file);hash.update(await readFile('drizzle/'+file));}
-hash.update(await readFile('.openai/hosting.json'));
-const buildId=hash.digest('hex');
+import {computeBuildId} from './scripts/build-input.mjs';
+import {checkArtifact} from './scripts/check-artifact-runtime.mjs';
+const buildId=await computeBuildId();
 let sourceCommit='';
 try{
- const dirty=execFileSync('git',['status','--porcelain','--','src','package.json','package-lock.json','build.mjs','drizzle','.openai/hosting.json'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+ const dirty=execFileSync('git',['status','--porcelain','--','src','scripts','package.json','package-lock.json','build.mjs','drizzle','.openai/hosting.json'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
  if(!dirty&&/^[a-f0-9]{40}$/.test(head))sourceCommit=head;
 }catch{}
@@ -30,3 +25,4 @@ await copyFile('src/quickjs.wasm','dist/server/quickjs.wasm');
 await copyFile('.openai/hosting.json','dist/.openai/hosting.json');
 await cp('drizzle','dist/.openai/drizzle',{recursive:true});
 console.log('built dist/server/index.js');
+console.log(JSON.stringify(await checkArtifact({write:true})));
